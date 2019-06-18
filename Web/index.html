@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>IOT Dashboard</title>
+
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/all.min.css" rel="stylesheet">
+	<link href="css/vis.min.css" rel="stylesheet">
+	<link href="css/iot.css" rel="stylesheet">
+
+	<script src="js/jquery-3.3.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script src="js/mqttws31.min.js"></script>
+	<script src="js/vis.min.js"></script>
+	<script src="js/moment.js"></script>
+</head>
+
+<body>
+	<main>
+		<div class="container">
+			<img src="dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<div class="card-deck mb-3 text-center">
+				<div class="card mb-4 box-shadow">
+					<div class="card-header">
+						<h3 class="font-weight-normal my-0">IOT Dasboard</h3>
+					</div>
+					<div id="iotStatus" class="card-body">
+						<div class="alert alert-primary" role="alert">
+							status indicator... should not see me!
+						</div>
+					</div>
+					<div id="iotNetwork" class="card-body d-none">
+						<!-- The network Graph will be shown here -->
+					</div>
+					<div id="iotList" class="card-body d-none">
+						<table class=" table">
+							<thead>
+								<tr>
+									<th scope="col">ID</th>
+									<th scope="col">Device</th>
+									<th scope="col">Comment</th>
+									<th scope="col">RSSI</th>
+									<th scope="col">Uptime</th>
+									<th scope="col">Last Beacon</th>
+								</tr>
+							</thead>
+							<tbody id="iotListBody">
+								<!-- The device list will be shown here -->
+							</tbody>
+						</table>
+					</div>
+					<div class="card-footer text-muted">
+						<a href="mailto:weinrank@fh-muenster.de">Felix Weinrank</a> - <a href="https://github.com/nplab">Network Programming Laboratory of Münster University of Applied Sciences</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</main>
+
+	<!-- Modal -->
+	<div class="modal fade" id="iotModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+		<div class="modal-dialog modal-lg" role="document">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h5 class="modal-title" id="exampleModalLabel">Node details - <span id="iotModalTitle"></span></h5>
+					<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+						<span aria-hidden="true">&times;</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<pre><code id="iotModalPre"></code></pre>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+
+	<script>
+		"use strict";
+		$(document).ready(function(){
+			let network;
+			let mqttServerAddress = '10.42.10.86';
+
+			// MQTT
+			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
+			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+
+			// VIS
+			let nodesDataset = new vis.DataSet({});
+			let edgesDataset = new vis.DataSet({});
+
+			// MQTT - set callback handlers and connect
+			mqttClient.onConnectionLost = mqttOnConnectionLost;
+			mqttClient.onMessageArrived = mqttOnMessageArrived;
+			mqttClient.connect({
+				onSuccess : mqttOnConnect,
+				onFailure : mqttOnConnectFailure,
+				timeout : 5
+			});
+
+			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
+
+			function initVisualization() {
+				// Create a network
+				let container = document.getElementById('iotNetwork');
+
+				let data = {
+					nodes: nodesDataset,
+					edges: edgesDataset
+				};
+
+				let options = {
+					physics: {
+						// forceAtlas2Based: {
+						// 	gravitationalConstant: -26,
+						// 	centralGravity: 0.005,
+						// 	springLength: 230,
+						// 	springConstant: 0.18
+						// },
+						maxVelocity: 146,
+						solver: 'forceAtlas2Based',
+						timestep: 0.35,
+						stabilization: {iterations: 450},
+					},
+					groups: {
+						deviceOnline: {
+							color: {background:'#ffa77e', border:'#ff4c05'}
+						},
+						deviceOffline: {
+							color: {background:'#8d7eff', border:'#1205ff'}
+						},
+						ap: {
+						},
+					},
+					nodes: {
+						shape: 'box',
+						margin: 10,
+						widthConstraint: {
+							maximum: 200
+						}
+					}
+				};
+
+				// Add IOT broker node
+				nodesDataset.add({
+					id: 0,
+					label: 'IOT-Broker',
+					color: {background:'#7eff9c', border:'#05ff1e'}
+				});
+
+				network = new vis.Network(container, data, options);
+				network.fit();
+			}
+
+			function updateNode(beacon) {
+
+				// Type 1 : Status message!
+				if (beacon.type === 1) {
+					let parentNode = 0;
+
+					// handle note itself
+					if (nodesDataset.get(beacon.id)) {
+						// known device --> update dataset
+						try {
+							nodesDataset.update({
+								id : beacon.id,
+								label : beacon.id,
+								group : 'deviceOnline'
+							});
+						} catch (err) {
+							alert(err);
+						}
+					} else {
+						// new device --> add to dataset
+						try {
+							nodesDataset.add({
+								id : beacon.id,
+								label : beacon.id,
+								group : 'deviceOnline'
+							});
+						} catch (err) {
+							alert(err);
+						}
+					}
+
+					// beacon has an BSSID entry
+					if (beacon.bssid) {
+						// unknown BSSID --> add to dataset
+						if (!nodesDataset.get(beacon.bssid)) {
+							try {
+								// add ap
+								nodesDataset.add({
+									id : beacon.bssid,
+									label : beacon.bssid,
+									group : 'ap'
+								});
+
+								// add an edge from the broker to the ap
+								edgesDataset.add({
+									id : beacon.bssid,
+									from: 0,
+									to : beacon.bssid
+								});
+
+							} catch (err) {
+								alert(err);
+							}
+						}
+						parentNode = beacon.bssid;
+					}
+
+					// check if we already have an edge from the node to the ap/broker
+					// if its present, update it or create a new one
+					if (edgesDataset.get(beacon.id)) {
+						try {
+							edgesDataset.update({
+								id : beacon.id,
+								from : parentNode,
+								to : beacon.id,
+							});
+						} catch (err) {
+							alert(err);
+						}
+					} else {
+						try {
+							edgesDataset.add({
+								id : beacon.id,
+								from : parentNode,
+								to : beacon.id
+							});
+						} catch (err) {
+							alert(err);
+						}
+					}
+				} else if (beacon.type === 2) {
+					nodesDataset.update({
+						id : beacon.id,
+						group : 'deviceOffline'
+					});
+				}
+
+				// Reshape graph
+				network.fit();
+			}
+
+			// MQTT Client - connected
+			function mqttOnConnect() {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log("mqttOnConnect");
+
+				$('#iotStatus').attr('class', 'card-body d-none');
+				$('#iotNetwork').attr('class', 'card-body');
+				$('#iotList').attr('class', 'card-body');
+
+				mqttClient.subscribe("beacon/#");
+			}
+
+			// MQTT Client - connect failed
+			function mqttOnConnectFailure(responseObject) {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
+			}
+
+			// MQTT Client - connection lost
+			function mqttOnConnectionLost(responseObject) {
+				if (responseObject.errorCode !== 0) {
+					console.log("onConnectionLost:" + responseObject.errorMessage);
+				}
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
+			}
+
+			// Click on sensor ID to open modal window
+			$("#iotListBody").on("click", "th", function(){
+				$("#iotModal").data("sensor", $(this).data("id"));
+
+				console.log("Inspecting : " + $(this).data("id"));
+				$("#iotModalTitle").text($(this).data("id"));
+				$("#iotModal").modal();
+
+				mqttClient.subscribe("sensor/" + $(this).data("id"));
+			});
+
+			// Closing the modal
+			$('#iotModal').on('hidden.bs.modal', function (e) {
+				console.log("Inspection stopped - " + $("#iotModal").data("sensor"));
+				$("#iotModalPre").text("");
+				mqttClient.unsubscribe("sensor/" + $("#iotModal").data("sensor"));
+			})
+
+			// Handle beacon message
+			function mqttHandleBeacon(message) {
+				if (JSON.parse(message.payloadString)) {
+					let beacon = JSON.parse(message.payloadString);
+					let idTrim = beacon.id.replace(/[^A-Za-z0-9_]/gim,"");
+
+					if (idTrim === "") {
+						console.log("Ignoring an emppty ID");
+						return;
+					}
+
+					let time = moment().format("HH:mm:ss");
+					let uptime = moment.duration(beacon.uptime).humanize();
+					let symbol_signal = '';
+
+					if (beacon.type === 1) {
+						if (beacon.rssi === undefined) {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:lightgrey;" class="fas fa-wifi"></i>';
+						} else if (Math.abs(beacon.rssi) == 0) {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-ethernet"></i>';
+						} else if (Math.abs(beacon.rssi) <= 50) {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-wifi"></i>';
+						} else if (Math.abs(beacon.rssi) <= 65) {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:yellow;" class="fas fa-wifi"></i>';
+						} else if (Math.abs(beacon.rssi) <= 80) {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:orange;" class="fas fa-wifi"></i>';
+						} else {
+							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:red;" class="fas fa-wifi"></i>';
+						}
+
+						if (!nodesDataset.get(beacon.id)) {
+							$("#iotListBody").append('<tr id="' + idTrim + '"><th scope="row" class="id"></th><td class="device"></td><td class="desc"></td><td class="rssi"></td><td class="uptime"></td><td class="lastBeacon"></td></tr>');
+						}
+						$("#" + idTrim + " > th.id").data('id', beacon.id);
+						$("#" + idTrim + " > th.id").text(beacon.id);
+						$("#" + idTrim + " > td.device").text(beacon.device);
+						$("#" + idTrim + " > td.device").text(beacon.device);
+						$("#" + idTrim + " > td.desc").text(beacon.desc);
+						$("#" + idTrim + " > td.rssi").html(symbol_signal);
+						$("#" + idTrim + " > td.uptime").text(uptime);
+						$("#" + idTrim + " > td.lastBeacon").text(time);
+
+					} else if (beacon.type === 2) {
+						symbol_signal = '<i title="RSSI : ' + beacon.rssi + '" style="color:red;" class="fas fa-times"></i>';
+						// Update existing entry ...
+						if (nodesDataset.get(beacon.id)){
+							$("#" + idTrim + " > td.rssi").html(symbol_signal);
+						}
+					}
+
+					updateNode(beacon);
+				}
+			}
+
+			// Handle data message
+			function mqttHandleData(message) {
+				$("#iotModalPre").append(message.payloadString).append("\n");
+			}
+
+			// General MQTT message handler
+			function mqttOnMessageArrived(message) {
+				console.log(message.payloadString);
+				if (message.destinationName.startsWith("beacon")) {
+					mqttHandleBeacon(message);
+				} else if (message.destinationName.startsWith("sensor")) {
+					mqttHandleData(message);
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			}
+
+			initVisualization();
+		});
+
+
+	</script>
+</body>
+</html>
