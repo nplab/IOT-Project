@@ -531,7 +531,8 @@ static bool wifi_connect(void) {
     Serial.print(".");
 
     if (++connection_tries >= 10) {
-      Serial.println("wifi_connect() ");
+      Serial.print(" Connection failed after 10 tries, calling WiFi.reconnect()");
+      WiFi.reconnect();
       return false;
     }
   }
