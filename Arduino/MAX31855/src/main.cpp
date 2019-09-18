@@ -1,7 +1,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "Adafruit_MAX31855.h"
-//#include <NTPClient.h>
+#include <NTPClient.h>
 
 ///////////////////////// COMMON HEADER BEGIN
 #include <PubSubClient.h>
@@ -31,29 +31,27 @@ static bool common_loop(void);
 static void beacon_send(void);
 static bool mqtt_connect(void);
 static bool wifi_connect(void);
-static bool json_send(const char *mqtt_topic, JsonObject *json_data);
+static bool json_send(const char *mqtt_topic, JsonObject json_data);
 ///////////////////////// COMMON HEADER END
 
 // MAX31855 Thermocouple
-// Example creating a thermocouple instance with software SPI on any three
-// digital IO pins.
+// Example creating a thermocouple instance with software SPI on any three digital IO pins.
 #define MAXDO     12
 #define MAXCLK    14
-#define MAXCS0    15
+#define MAXCS0    13
 #define MAXCS1    16
 
 // Initialize the Thermocouple
-Adafruit_MAX31855 thermocouple0(MAXCLK, MAXCS0, MAXDO);
-Adafruit_MAX31855 thermocouple1(MAXCLK, MAXCS1, MAXDO);
+Adafruit_MAX31855 thermocouple(MAXCLK, MAXCS0, MAXDO);
 
-//WiFiUDP ntpUDP;
-//NTPClient timeClient(ntpUDP, "de.pool.ntp.org");
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "de.pool.ntp.org");
 
 static void max31855_send(void);
 
 void setup(void) {
   common_setup();
-  //timeClient.begin();
+  timeClient.begin();
   delay(500);
 }
 
@@ -65,7 +63,7 @@ void loop(void) {
     return;
   }
 
-  //timeClient.update();
+  timeClient.update();
 
   // Send sensor values every SENSOR_INTERVAL
   if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
@@ -81,11 +79,11 @@ static void max31855_send() {
 
   json_data["sensor"]   = "max31855";
   json_data["uptime"]   = millis();
-  //json_data["time"]     = timeClient.getEpochTime();
-  json_data["temp0"]    = thermocouple0.readCelsius();
-  json_data["temp1"]    = thermocouple1.readCelsius();
+  json_data["time"]     = timeClient.getEpochTime();
+  json_data["time_ms"]  = timeClient.getEpochTimeMs();
+  json_data["temp0"]    = thermocouple.readCelsius();
 
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 ///////////////////////// COMMON FUNCTIONS BEGIN
@@ -118,7 +116,7 @@ bool common_setup(void) {
   serializeJson(json_data, mqtt_last_will_buffer);
 
 #ifdef OTA_ENABLED
-  ArduinoOTA.setPassword("secret");
+  ArduinoOTA.setPassword("bruttonetto");
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
 #endif
@@ -234,12 +232,12 @@ static void beacon_send(void) {
     json_data["bssid"]  = String(mac);
   }
 
-  json_send(mqtt_beacon_topic.c_str(), &json_data);
+  json_send(mqtt_beacon_topic.c_str(), json_data);
 }
 
-static bool json_send(const char *mqtt_topic, JsonObject *json_data) {
+static bool json_send(const char *mqtt_topic, JsonObject json_data) {
   char buffer[512];
-  int bufferlen = serializeJson(*json_data, buffer);
+  int bufferlen = serializeJson(json_data, buffer);
 
 #ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");

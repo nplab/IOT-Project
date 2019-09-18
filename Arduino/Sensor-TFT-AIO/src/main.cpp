@@ -33,7 +33,7 @@ static bool common_loop(void);
 static void beacon_send(void);
 static bool mqtt_connect(void);
 static bool wifi_connect(void);
-static bool json_send(const char *mqtt_topic, JsonObject *json_data);
+static bool json_send(const char *mqtt_topic, JsonObject json_data);
 ///////////////////////// COMMON HEADER END
 
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -185,7 +185,7 @@ static void sht_send(void) {
   json_data["temp"]   = sht31.readTemperature();
   json_data["humi"]   = sht31.readHumidity();
 
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 static void bme_setup(void) {
@@ -212,7 +212,7 @@ static void bme_send(void) {
   json_data["humi"] = bme.humidity;
   json_data["press"] = bme.pressure;
   
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 static void tcs_send(void) {
@@ -226,7 +226,7 @@ static void tcs_send(void) {
   json_data["temp"]   = tcs.calculateColorTemperature_dn40(r, g, b, c);
   json_data["lux"]    = tcs.calculateLux(r, g, b);
 
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 static void dht_send(void) {
@@ -237,7 +237,7 @@ static void dht_send(void) {
   json_data["temp"]   = dht.readTemperature();
   json_data["humi"]   = dht.readHumidity();
 
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 static void mma_send() {
@@ -251,7 +251,7 @@ static void mma_send() {
   json_data["y"]      = mma.y;
   json_data["z"]      = mma.z;
 
-  json_send(mqtt_sensor_topic.c_str(), &json_data);
+  json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 #ifdef TFT_OUTPUT
@@ -349,7 +349,7 @@ bool common_setup(void) {
   serializeJson(json_data, mqtt_last_will_buffer);
 
 #ifdef OTA_ENABLED
-  ArduinoOTA.setPassword("secret");
+  ArduinoOTA.setPassword("bruttonetto");
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
 #endif
@@ -465,12 +465,12 @@ static void beacon_send(void) {
     json_data["bssid"]  = String(mac);
   }
 
-  json_send(mqtt_beacon_topic.c_str(), &json_data);
+  json_send(mqtt_beacon_topic.c_str(), json_data);
 }
 
-static bool json_send(const char *mqtt_topic, JsonObject *json_data) {
+static bool json_send(const char *mqtt_topic, JsonObject json_data) {
   char buffer[512];
-  int bufferlen = serializeJson(*json_data, buffer);
+  int bufferlen = serializeJson(json_data, buffer);
 
 #ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");

@@ -14,6 +14,8 @@ python3 -m pip install openpyxl
 ### Prepare Jupyter Lab Environment
 Install required packages for Jupyter Lab.
 ```
+python3 -m pip install nodejs
+python3 -m pip install npm
 python3 -m pip install jupyterlab
 python3 -m pip install bokeh
 python3 -m pip install ipywidgets
