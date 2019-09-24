@@ -21,7 +21,8 @@ if interactive_mode:
     from bokeh.layouts import row, column
     from bokeh.io import output_notebook, show, push_notebook, curdoc
     from bokeh.palettes import Dark2_5 as palette
-    output_notebook()
+    from bokeh.resources import INLINE
+    output_notebook(resources=INLINE)
 
 
 ################################# Settings BEGIN
@@ -186,5 +187,7 @@ def record_and_display(config):
     logging.info('Finished!')
 
 # Run if there's no start button
-if not ('button_run') in locals():
+#if not ('button_run') in locals():
+#    record_and_display(config)
+if __name__ == "__main__":
     record_and_display(config)
