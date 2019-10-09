@@ -1,6 +1,7 @@
+#!/usr/bin/env python
+
 import paho.mqtt.client as mqtt
 import json
-import time
 import math
 import pandas as pd
 import numpy as np
@@ -9,8 +10,7 @@ import sys
 import logging
 import __main__ as main
 
-from datetime import datetime
-
+import datetime
 
 # Check if we're executed interactively (Jupyter etc)
 interactive_mode = bool(getattr(sys, 'ps1', sys.flags.interactive))
@@ -27,7 +27,7 @@ if interactive_mode:
 
 ################################# Settings BEGIN
 # Only set these variables, if they haven't been set before
-if not ('config') in locals():
+if not 'config' in locals():
     ## Don't modify this line! :)
     config = {}
 
@@ -48,7 +48,7 @@ if not ('config') in locals():
     config['record_sample_limit'] = 0
 
     ## Recording - stop the program if the defined amount of seconds has passed (0 = unlimited)
-    config['record_duration_limit'] = 60
+    config['record_duration_limit'] = 10
 
     ## Display - upper limit of samples displayed in the bokeh graph
     config['bokeh_stream_rollover'] = 250
@@ -64,6 +64,8 @@ if not ('config') in locals():
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 mqtt_queue = queue.Queue()
+
+sensor_meta = {}
 
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, config, flags, rc):
@@ -81,15 +83,15 @@ def on_message(client, userdata, msg):
 
 def record_and_display(config):
     sample_index = 0
-    start_time = time.time()
+    start_time = datetime.datetime.now()
     done = False
-    pd_source = pd.DataFrame(columns=['time', 'time_ms', 'topic', 'value'])
+    pd_source = pd.DataFrame(columns=['datetime', 'sensor', 'temp0'])
 
     logging.debug('Starting program')
 
     ####################################
     if interactive_mode:
-        bokeh_figure = figure(title='MAX31855 Temperature Plot', sizing_mode='stretch_width', plot_height = 400, tools = 'pan, wheel_zoom, box_zoom, reset, crosshair, hover, save')
+        bokeh_figure = figure(title='MAX31855 Temperature Plot', sizing_mode='stretch_width', x_axis_type='datetime', plot_height = 400, tools = 'pan, wheel_zoom, box_zoom, reset, crosshair, hover, save')
         bokeh_csource = {}
 
         # Create DataSources and lines/circles for each topic
@@ -99,6 +101,7 @@ def record_and_display(config):
             bokeh_figure.circle(x = 'x', y = 'y', source = bokeh_csource[topic], legend = topic, color = color, fill_color = 'white')
 
         bokeh_figure.yaxis.axis_label = 'Temperature (C)'
+        bokeh_figure.xaxis.axis_label = 'Time'
         bokeh_handle = show(bokeh_figure, notebook_handle = True)
 
     mqtt_client = mqtt.Client(client_id = config['mqtt_id'], userdata=config)
@@ -110,6 +113,16 @@ def record_and_display(config):
     logging.debug('Starting loop')
 
     while not done:
+
+
+        if config['record_sample_limit'] > 0 and sample_index > config['record_sample_limit']:
+            logging.info('Reached sample limit, stopping')
+            done = True
+
+        if config['record_duration_limit'] > 0 and (datetime.datetime.now() - start_time) > datetime.timedelta(seconds=config['record_duration_limit']):
+            logging.info('Reached runtime limit, stopping')
+            done = True
+
         try:
             # Receive message from queue
             msg = mqtt_queue.get(block = True, timeout = 0.1)
@@ -118,54 +131,71 @@ def record_and_display(config):
             sensor_data = json.loads(msg.payload)
 
             # Check if we have all required fields
-            if not 'time' in sensor_data or not 'time_ms' in sensor_data or not 'temp0' in sensor_data:
+            if not 'temp0' in sensor_data:
                 logging.error('missing key in sensor_data:')
                 logging.error(sensor_data)
                 continue
 
+            if sensor_data['temp0'] is None:
+                logging.error('Sensor value error:')
+                logging.error(sensor_data)
+                continue
+
+            if msg.topic in sensor_meta and True:
+                # Rollover
+                if sensor_data['uptime'] < sensor_meta[msg.topic]['fist_uptime']:
+                    sensor_meta[msg.topic]['first_datetime'] = datetime.datetime.now()
+                    sensor_meta[msg.topic]['fist_uptime'] = sensor_data['uptime']
+
+                sensor_value_datetime = sensor_meta[msg.topic]['first_datetime'] - datetime.timedelta(milliseconds=sensor_meta[msg.topic]['fist_uptime']) + datetime.timedelta(milliseconds=sensor_data['uptime'])
+            else:
+                sensor_meta[msg.topic] = {}
+                sensor_meta[msg.topic]['first_datetime'] = datetime.datetime.now()
+                sensor_meta[msg.topic]['fist_uptime'] = sensor_data['uptime']
+                sensor_value_datetime = datetime.datetime.now()
+
             # Build object for pandas dataframe and append
             pd_data = {}
-            pd_data['time']     = sensor_data['time']
-            pd_data['time_ms']  = sensor_data['time_ms']
-            pd_data['topic']    = msg.topic
-            pd_data['value']    = float(sensor_data['temp0'])
+            pd_data['datetime'] = sensor_value_datetime
+            pd_data['sensor']   = msg.topic
+            pd_data['temp0']    = float(sensor_data['temp0'])
+
+            #print(pd_data)
 
             pd_source.loc[len(pd_source)] = pd_data
             sample_index = sample_index + 1
 
-            #print(pd_data);
-
-            if interactive_mode:
-                bokeh_data = {}
-                bokeh_data['x'] = [sensor_data['time'] * 1000 + sensor_data['time_ms']]
-                bokeh_data['y'] = [float(sensor_data['temp0'])]
-
-                #print(bokeh_data)
-                bokeh_csource[msg.topic].stream(bokeh_data, config['bokeh_stream_rollover'])
-                push_notebook(handle = bokeh_handle)
-            else:
-                print(msg.payload)
-
         except queue.Empty:
             #print('NOTE - timeout!')
-            pass
+            continue
         except json.JSONDecodeError:
             logging.error('JSONDecodeError')
             done = True
+            continue;
         except ValueError:
             logging.error('ValueError')
             done = True
-        except:
+            continue;
+        except KeyboardInterrupt:
+            logging.warning('Keyboard interrup!');
+            done = True;
+            continue;
+        except Exception as e:
             logging.error('Unexpected error!')
+            print(e)
             done = True
+            continue;
 
-        if config['record_sample_limit'] > 0 and sample_index > config['record_sample_limit']:
-            logging.info('Reached sample limit, stopping')
-            done = True
+        if interactive_mode:
+            bokeh_data = {}
+            bokeh_data['x'] = [sensor_value_datetime]
+            bokeh_data['y'] = [float(sensor_data['temp0'])]
 
-        if config['record_duration_limit'] > 0 and (time.time() - start_time) > config['record_duration_limit']:
-            logging.info('Reached runtime limit, stopping')
-            done = True
+            #print(bokeh_data)
+            bokeh_csource[msg.topic].stream(bokeh_data, config['bokeh_stream_rollover'])
+            push_notebook(handle = bokeh_handle)
+        else:
+            print('{sensor} - {temp:.2f} C'.format(sensor=msg.topic, temp=float(sensor_data['temp0'])))
 
 
     # We are done, disconnect MQTT client
@@ -173,16 +203,18 @@ def record_and_display(config):
 
     # Export collected data
     if config['export_csv']:
-        pd_source.to_csv(datetime.now().strftime('%Y%m%d%H%M%S') + '.csv')
-        logging.info('Data written to ' + datetime.now().strftime('%Y%m%d%H%M%S') + '.csv')
+        pd_source.to_csv(datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.csv')
+        logging.info('Data written to ' + datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.csv')
 
     if config['export_json']:
-        pd_source.to_json(datetime.now().strftime('%Y%m%d%H%M%S') + '.json')
-        logging.info('Data written to ' + datetime.now().strftime('%Y%m%d%H%M%S') + '.json')
+        pd_source.to_json(datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.json')
+        logging.info('Data written to ' + datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.json')
 
     if config['export_excel']:
-        pd_source.to_excel(datetime.now().strftime('%Y%m%d%H%M%S') + '.xlsx')
-        logging.info('Data written to ' + datetime.now().strftime('%Y%m%d%H%M%S') + '.xlsx')
+        pd_source.to_excel(datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.xlsx')
+        logging.info('Data written to ' + datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '.xlsx')
+
+    mqtt_client.disconnect();
 
     logging.info('Finished!')
 
