@@ -1,9 +1,6 @@
 #include <Wire.h>
-#include <Adafruit_SHT31.h>
-#include <Adafruit_TCS34725.h>
-#include <Adafruit_BME680.h>
 #include <Adafruit_MMA8451.h>
-#include <DHT.h>
+#include <Adafruit_Sensor.h>
 
 ///////////////////////// COMMON HEADER BEGIN
 #include <PubSubClient.h>
@@ -44,93 +41,14 @@ static bool wifi_connect(void);
 static bool json_send(const char *mqtt_topic, JsonObject json_data);
 ///////////////////////// COMMON HEADER END
 
-#define SEALEVELPRESSURE_HPA (1013.25)
+Adafruit_MMA8451 mma8451 = Adafruit_MMA8451();
 
-#ifdef TFT_OUTPUT
-#include <SPI.h>
-#include <Adafruit_GFX.h>    // Core graphics library
-#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
-// For the breakout board, you can use any 2 or 3 pins.
-// These pins will also work for the 1.8" TFT shield.
-#define TFT_CS    5
-#define TFT_RST   4 // Or set to -1 and connect to Arduino RESET pin
-#define TFT_DC    2
-
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-
-static void tft_print_weather(double temperature, double humidity, double altitude);
-static void tft_print_status(void);
-
-#define TFT_FAILURE_WIFI 1
-#define TFT_FAILURE_MQTT 2
-#endif // TFT_OUTPUT
-
-bool bme_present    = false;
-bool sht_present    = false;
-bool tcs_present    = false;
-bool mma_present    = false;
-bool dht_present    = false;
-
-// Sensors
-Adafruit_BME680 bme; // I2C
-Adafruit_SHT31 sht31   = Adafruit_SHT31();
-Adafruit_TCS34725 tcs  = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
-Adafruit_MMA8451 mma   = Adafruit_MMA8451();
-
-#define DHT_PIN 4
-#define DHT_TYPE DHT11
-DHT dht(DHT_PIN, DHT_TYPE);
-
-static void bme_setup(void);
-static void tcs_send(void);
-static void mma_send();
-static void bme_send(void);
-static void dht_send(void);
-static void sht_send(void);
+static void mma8451_send(void);
 
 void setup(void) {
   common_setup();
-
-  // Initialize SHT
-  if (sht31.begin(0x44) && sht31.readStatus() != 65535) {   // Set to 0x45 for alternate i2c addr
-    sht_present = true;
-    Serial.println(F("SHT31 detected"));
-  }
-
-  // Initialize BME
-  if (bme.begin()) {
-    bme_present = true;
-    bme_setup();
-    Serial.println(F("BME680 detected"));
-  }
-
-  // Initialize TCS
-  if (tcs.begin()) {
-    tcs_present = true;
-    Serial.println(F("TCS46725 detected"));
-  }
-
-  // Initialize MMA
-  if (mma.begin()) {
-    mma_present = true;
-    mma.setRange(MMA8451_RANGE_4_G);
-    Serial.println(F("MMA8451 detected"));
-  }
-
-  // Initialize DHTXX
-  dht.begin();
-  delay(1000);
-  if (dht.read()) {
-    dht_present = true;
-    Serial.println(F("DHTxx detected"));
-  }
-
-#ifdef TFT_OUTPUT
-  // Use this initializer if using a 1.8" TFT screen:
-  tft.initR();      // Init ST7735S chip, black tab
-  tft.fillScreen(ST7735_BLACK);
-#endif
-
+  mma8451.begin();  // Initialize ads1115
+  mma8451.setRange(MMA8451_RANGE_2_G);
   delay(500);
 }
 
@@ -142,190 +60,30 @@ void loop(void) {
     return;
   }
 
+  //timeClient.update();
+
   // Send sensor values every SENSOR_INTERVAL
   if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
     last_value_sent = millis();
-
-    if (bme_present) {
-      bme_send();
-    }
-
-    if (sht_present) {
-      sht_send();
-    }
-
-    if (tcs_present) {
-      tcs_send();
-    }
-
-    if (mma_present) {
-      mma_send();
-    }
-
-    if (dht_present) {
-      dht_send();
-    }
+    mma8451_send();
   }
 
-#ifdef TFT_OUTPUT
-  static long last_display_change = 0;
-  static uint8_t display_page = 0;
-  if (last_display_change == 0 || (millis() - last_display_change) > DISPLAY_INTERVAL) {
-#ifdef DEBUG_OUTPUT
-    Serial.println(F("Changing TFT..."));
-#endif
-    last_display_change = millis();
-    display_page = (display_page + 1 ) % 2;
-    if (display_page == 0 && bme_present) {
-      tft_print_weather(bme.temperature, bme.humidity, bme.readAltitude(SEALEVELPRESSURE_HPA));
-    } else {
-      tft_print_status();
-    }
-  }
-#endif
 }
 
-static void sht_send(void) {
+static void mma8451_send() {
   StaticJsonDocument<512> json_doc;
   JsonObject json_data = json_doc.to<JsonObject>();
 
-  json_data["sensor"] = "sht31";
-  json_data["temp"]   = sht31.readTemperature();
-  json_data["humi"]   = sht31.readHumidity();
+  mma8451.read();
+
+  json_data["sensor"]   = "mma8451";
+  json_data["uptime"]   = millis();
+  json_data["x"]  = mma8451.x;
+  json_data["y"]  = mma8451.y;
+  json_data["z"]  = mma8451.z;
 
   json_send(mqtt_sensor_topic.c_str(), json_data);
 }
-
-static void bme_setup(void) {
-  // Set up oversampling and filter initialization
-  bme.setTemperatureOversampling(BME680_OS_8X);
-  bme.setHumidityOversampling(BME680_OS_2X);
-  bme.setPressureOversampling(BME680_OS_4X);
-  bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  //bme.setGasHeater(320, 150); // 320*C for 150 ms
-  bme.setGasHeater(0, 0); // 320*C for 150 ms
-}
-
-static void bme_send(void) {
-  if (!bme.performReading()) {
-    Serial.println(F("bme_send() - bme.performReading() failed"));
-    return;
-  }
-
-  StaticJsonDocument<512> json_doc;
-  JsonObject json_data = json_doc.to<JsonObject>();
-
-  json_data["sensor"] = "bme680";
-  json_data["temp"] = bme.temperature;
-  json_data["humi"] = bme.humidity;
-  json_data["press"] = bme.pressure;
-  
-  json_send(mqtt_sensor_topic.c_str(), json_data);
-}
-
-static void tcs_send(void) {
-  uint16_t r, g, b, c;
-  tcs.getRawData(&r, &g, &b, &c);
-
-  StaticJsonDocument<512> json_doc;
-  JsonObject json_data = json_doc.to<JsonObject>();
-
-  json_data["sensor"] = "tcs34725";
-  json_data["temp"]   = tcs.calculateColorTemperature_dn40(r, g, b, c);
-  json_data["lux"]    = tcs.calculateLux(r, g, b);
-
-  json_send(mqtt_sensor_topic.c_str(), json_data);
-}
-
-static void dht_send(void) {
-  StaticJsonDocument<512> json_doc;
-  JsonObject json_data = json_doc.to<JsonObject>();
-
-  json_data["sensor"] = "dht";
-  json_data["temp"]   = dht.readTemperature();
-  json_data["humi"]   = dht.readHumidity();
-
-  json_send(mqtt_sensor_topic.c_str(), json_data);
-}
-
-static void mma_send() {
-  mma.read();
-
-  StaticJsonDocument<512> json_doc;
-  JsonObject json_data = json_doc.to<JsonObject>();
-
-  json_data["sensor"] = "mma8451";
-  json_data["x"]      = mma.x;
-  json_data["y"]      = mma.y;
-  json_data["z"]      = mma.z;
-
-  json_send(mqtt_sensor_topic.c_str(), json_data);
-}
-
-#ifdef TFT_OUTPUT
-static void tft_print_weather(double temperature, double humidity, double altitude) {
-
-  int y_offset        = 3;
-  int x_offset        = 10;
-
-  tft.setTextWrap(false);
-  tft.setTextSize(3);
-  //tft.fillScreen(ST7735_BLACK);
-  
-  tft.fillRect(0, 0 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_RED);
-  tft.fillRect(0, 1 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_BLUE);
-  tft.fillRect(0, 2 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_BLACK);
-  
-  tft.setTextColor(ST7735_WHITE);
-  tft.setCursor(x_offset, 0 + y_offset);
-  tft.println(" Temp");
-  tft.setCursor(x_offset, tft.getCursorY());
-  tft.print(temperature, 1);
-  tft.println(" C");
-
-  tft.setCursor(x_offset, 1 * tft.height() / 3 + y_offset);
-  tft.setTextColor(ST7735_WHITE);
-  tft.println(" Humi");
-  tft.setCursor(x_offset, tft.getCursorY());
-  tft.print(humidity, 1);
-  tft.println(" %");
-
-  tft.setCursor(x_offset, 2 * tft.height() / 3 + y_offset);
-  tft.setTextColor(ST7735_WHITE);
-  tft.println(" Alti");
-  tft.setCursor(x_offset, tft.getCursorY());
-  tft.print(altitude, 0);
-  tft.println(" M");
-}
-
-static void tft_print_status(void) {
-  tft.fillScreen(ST7735_BLACK);
-  tft.setTextSize(1);
-  tft.setCursor(0, 0);
-
-  tft.println("# RSSI");
-  tft.println(WiFi.RSSI());
-  tft.println("");
-  tft.println("# MAC");
-  tft.println(String(WiFi.macAddress()));
-  tft.println("");
-  tft.println("# IP");
-  tft.println(WiFi.localIP());
-  tft.println("");
-  tft.println("# SM");
-  tft.println(WiFi.subnetMask());
-  tft.println("");
-  tft.println("# GW");
-  tft.println(WiFi.gatewayIP());
-  tft.println("");
-  tft.println("# MQTT status");
-  if (mqtt_client.state() == MQTT_CONNECTED) {
-    tft.println("Connected!");
-  } else {
-    tft.println(mqtt_client.state());
-  }
-}
-#endif
 
 ///////////////////////// COMMON FUNCTIONS BEGIN
 static bool common_setup(void) {

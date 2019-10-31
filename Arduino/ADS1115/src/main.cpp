@@ -16,7 +16,7 @@
 mbedtls_md_context_t md_context;
 mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
 const char *md_key = HMAC_KEY;
-#endif
+#endif // HMAC_ENABLED
 
 #ifdef TARGET_ESP8266
 #include <ESP8266WiFi.h>
@@ -89,7 +89,7 @@ static void ads1115_send() {
 }
 
 ///////////////////////// COMMON FUNCTIONS BEGIN
-bool common_setup(void) {
+static bool common_setup(void) {
   Serial.begin(115200);
   delay(2000);
   Serial.println(F("Hello! Let's go..."));
@@ -121,7 +121,7 @@ bool common_setup(void) {
   ArduinoOTA.setPassword("bruttonetto");
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
-#endif
+#endif // TARGET_ESP32
   ArduinoOTA.setPort(54321);
   ArduinoOTA.onStart([]() {
     String type;
@@ -173,7 +173,7 @@ bool common_setup(void) {
 #ifdef HMAC_ENABLED
   mbedtls_md_init(&md_context);
   mbedtls_md_setup(&md_context, mbedtls_md_info_from_type(md_type), 1);
-#endif
+#endif // HMAC_ENABLED
 
   Serial.println(F("Initialized"));
   return true;
@@ -182,11 +182,13 @@ bool common_setup(void) {
 bool common_loop(void) {
   static long last_beacon_sent;
   static long last_led_toggle;
+#ifdef DEBUG_OUTPUT
   static long hz_counter;
   static long hz_counter_delta;
+#endif // DEBUG_OUTPUT
 
-  // Toggle status LED
-  if (last_led_toggle == 0 || (millis() - last_led_toggle) >= 250) {
+  // Toggle status LED as activity indicator
+  if (last_led_toggle == 0 || (millis() - last_led_toggle) >= 500) {
     last_led_toggle = millis();
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
@@ -210,19 +212,20 @@ bool common_loop(void) {
   mqtt_client.loop();
 #endif // MQTT_OUTPUT
 
-  // Send an beacon every BEACON_INTERVAL
+  // Send a beacon every BEACON_INTERVAL
   if (last_beacon_sent == 0 || BEACON_INTERVAL == 0 || (millis() - last_beacon_sent) >= BEACON_INTERVAL) {
-    last_beacon_sent = millis();
     beacon_send();
+    last_beacon_sent = millis();
   }
 
+#ifdef DEBUG_OUTPUT
   if ((millis() - hz_counter_delta) >= 1000) {
     Serial.printf("Freq : %ld Hz\n", hz_counter);
     hz_counter_delta = millis();
     hz_counter = 0;
   }
-
   hz_counter++;
+#endif
 
   return true;
 }
@@ -275,8 +278,8 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
 
   }
   Serial.println("");
-#endif
-#endif
+#endif // DEBUG_OUTPUT
+#endif // HMAC_ENABLED
 
   bufferlen = serializeJson(json_data, buffer);
 
@@ -285,14 +288,14 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
   Serial.print(mqtt_topic);
   Serial.print("] ");
   Serial.println(buffer);
-#endif
+#endif // DEBUG_OUTPUT
 
 #ifdef MQTT_OUTPUT
   if (!mqtt_client.publish(mqtt_topic, (const uint8_t *) buffer, bufferlen)) {
     Serial.println("publish failed!");
     return false;
   }
-#endif
+#endif // MQTT_OUTPUT
 
   return true;
 }
@@ -313,10 +316,9 @@ static bool mqtt_connect(void) {
   Serial.print(CONFIG_MQTT_BROKER_ADDRESS);
   Serial.print(" ...");
 
-  // Attempt to connect
+  // Try to connect
   if (mqtt_client.connect(mqtt_client_id.c_str(), mqtt_beacon_topic.c_str(), 0, false, mqtt_last_will_buffer)) {
     Serial.println(F("connected"));
-    //mqtt_client.subscribe("inTopic");
     return true;
   } else {
     Serial.print("failed, rc=");
@@ -339,7 +341,8 @@ static bool wifi_connect(void) {
     Serial.print(".");
 
     if (++connection_tries >= 10) {
-      Serial.println("wifi_connect() ");
+      Serial.println("Connection failed after 10 tries, calling WiFi.reconnect()");
+      WiFi.reconnect();
       return false;
     }
   }

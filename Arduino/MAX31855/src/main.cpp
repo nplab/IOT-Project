@@ -1,7 +1,6 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "Adafruit_MAX31855.h"
-#include <NTPClient.h>
 
 ///////////////////////// COMMON HEADER BEGIN
 #include <PubSubClient.h>
@@ -10,6 +9,14 @@
 #ifdef OTA_ENABLED
 #include <ArduinoOTA.h>
 #endif // OTA_ENABLED
+
+#ifdef HMAC_ENABLED
+#include <base64.h>
+#include "mbedtls/md.h"
+mbedtls_md_context_t md_context;
+mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
+const char *md_key = HMAC_KEY;
+#endif // HMAC_ENABLED
 
 #ifdef TARGET_ESP8266
 #include <ESP8266WiFi.h>
@@ -44,14 +51,10 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data);
 // Initialize the Thermocouple
 Adafruit_MAX31855 thermocouple(MAXCLK, MAXCS0, MAXDO);
 
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "de.pool.ntp.org");
-
 static void max31855_send(void);
 
 void setup(void) {
   common_setup();
-  timeClient.begin();
   delay(500);
 }
 
@@ -62,8 +65,6 @@ void loop(void) {
     // Something went wrong, skip further execution
     return;
   }
-
-  timeClient.update();
 
   // Send sensor values every SENSOR_INTERVAL
   if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
@@ -79,15 +80,13 @@ static void max31855_send() {
 
   json_data["sensor"]   = "max31855";
   json_data["uptime"]   = millis();
-  json_data["time"]     = timeClient.getEpochTime();
-  json_data["time_ms"]  = timeClient.getEpochTimeMs();
   json_data["temp0"]    = thermocouple.readCelsius();
 
   json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
 ///////////////////////// COMMON FUNCTIONS BEGIN
-bool common_setup(void) {
+static bool common_setup(void) {
   Serial.begin(115200);
   delay(2000);
   Serial.println(F("Hello! Let's go..."));
@@ -119,7 +118,7 @@ bool common_setup(void) {
   ArduinoOTA.setPassword("bruttonetto");
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
-#endif
+#endif // TARGET_ESP32
   ArduinoOTA.setPort(54321);
   ArduinoOTA.onStart([]() {
     String type;
@@ -168,6 +167,11 @@ bool common_setup(void) {
   ArduinoOTA.begin();
 #endif // OTA_ENABLED
 
+#ifdef HMAC_ENABLED
+  mbedtls_md_init(&md_context);
+  mbedtls_md_setup(&md_context, mbedtls_md_info_from_type(md_type), 1);
+#endif // HMAC_ENABLED
+
   Serial.println(F("Initialized"));
   return true;
 }
@@ -175,9 +179,13 @@ bool common_setup(void) {
 bool common_loop(void) {
   static long last_beacon_sent;
   static long last_led_toggle;
+#ifdef DEBUG_OUTPUT
+  static long hz_counter;
+  static long hz_counter_delta;
+#endif // DEBUG_OUTPUT
 
-  // Toggle status LED
-  if (last_led_toggle == 0 || (millis() - last_led_toggle) >= 250) {
+  // Toggle status LED as activity indicator
+  if (last_led_toggle == 0 || (millis() - last_led_toggle) >= 500) {
     last_led_toggle = millis();
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
@@ -201,11 +209,20 @@ bool common_loop(void) {
   mqtt_client.loop();
 #endif // MQTT_OUTPUT
 
-  // Send an beacon every BEACON_INTERVAL
+  // Send a beacon every BEACON_INTERVAL
   if (last_beacon_sent == 0 || BEACON_INTERVAL == 0 || (millis() - last_beacon_sent) >= BEACON_INTERVAL) {
-    last_beacon_sent = millis();
     beacon_send();
+    last_beacon_sent = millis();
   }
+
+#ifdef DEBUG_OUTPUT
+  if ((millis() - hz_counter_delta) >= 1000) {
+    Serial.printf("Freq : %ld Hz\n", hz_counter);
+    hz_counter_delta = millis();
+    hz_counter = 0;
+  }
+  hz_counter++;
+#endif
 
   return true;
 }
@@ -237,21 +254,45 @@ static void beacon_send(void) {
 
 static bool json_send(const char *mqtt_topic, JsonObject json_data) {
   char buffer[512];
-  int bufferlen = serializeJson(json_data, buffer);
+  int bufferlen;
+
+#ifdef HMAC_ENABLED
+  byte hmac_hash[32];
+
+  json_data["hmac"] = "";
+  bufferlen = serializeJson(json_data, buffer);
+
+  mbedtls_md_hmac_starts(&md_context, (const unsigned char *) md_key, strlen(md_key));
+  mbedtls_md_hmac_update(&md_context, (const unsigned char *) buffer, bufferlen);
+  mbedtls_md_hmac_finish(&md_context, hmac_hash);
+  json_data["hmac"] = base64::encode(hmac_hash, 32);
+
+#ifdef DEBUG_OUTPUT
+  for (int i= 0; i< sizeof(hmac_hash); i++){
+      char str[3];
+      sprintf(str, "%02X", (int)hmac_hash[i]);
+      Serial.print(str);
+
+  }
+  Serial.println("");
+#endif // DEBUG_OUTPUT
+#endif // HMAC_ENABLED
+
+  bufferlen = serializeJson(json_data, buffer);
 
 #ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");
   Serial.print(mqtt_topic);
   Serial.print("] ");
   Serial.println(buffer);
-#endif
+#endif // DEBUG_OUTPUT
 
 #ifdef MQTT_OUTPUT
   if (!mqtt_client.publish(mqtt_topic, (const uint8_t *) buffer, bufferlen)) {
     Serial.println("publish failed!");
     return false;
   }
-#endif
+#endif // MQTT_OUTPUT
 
   return true;
 }
@@ -272,10 +313,9 @@ static bool mqtt_connect(void) {
   Serial.print(CONFIG_MQTT_BROKER_ADDRESS);
   Serial.print(" ...");
 
-  // Attempt to connect
+  // Try to connect
   if (mqtt_client.connect(mqtt_client_id.c_str(), mqtt_beacon_topic.c_str(), 0, false, mqtt_last_will_buffer)) {
     Serial.println(F("connected"));
-    //mqtt_client.subscribe("inTopic");
     return true;
   } else {
     Serial.print("failed, rc=");
@@ -298,7 +338,8 @@ static bool wifi_connect(void) {
     Serial.print(".");
 
     if (++connection_tries >= 10) {
-      Serial.println("wifi_connect() ");
+      Serial.println("Connection failed after 10 tries, calling WiFi.reconnect()");
+      WiFi.reconnect();
       return false;
     }
   }
