@@ -5,16 +5,18 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 	<title>IOT Dashboard</title>
+	<link rel="shortcut icon" href="/dist/favicon.ico" type="image/x-icon">
+	<link rel="icon" href="/dist/favicon.ico" type="image/x-icon">
 
 	<link href="css/bootstrap.min.css" rel="stylesheet">
 	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/vis.min.css" rel="stylesheet">
+	<link href="css/vis-network.min.css" rel="stylesheet">
 	<link href="css/iot.css" rel="stylesheet">
 
 	<script src="js/jquery-3.3.1.min.js"></script>
 	<script src="js/bootstrap.min.js"></script>
 	<script src="js/mqttws31.min.js"></script>
-	<script src="js/vis.min.js"></script>
+	<script src="js/vis-network.min.js"></script>
 	<script src="js/moment.js"></script>
 </head>
 
@@ -130,12 +132,13 @@
 					},
 					groups: {
 						deviceOnline: {
-							color: {background:'#ffa77e', border:'#ff4c05'}
+							color: {background:'#95C623', border:'#95C623'}
 						},
 						deviceOffline: {
-							color: {background:'#8d7eff', border:'#1205ff'}
+							color: {background:'#B2DBBF', border:'#B2DBBF'}
 						},
 						ap: {
+							color: {background:'#7B9A9B', border:'#7B9A9B'}
 						},
 					},
 					nodes: {
@@ -151,7 +154,7 @@
 				nodesDataset.add({
 					id: 0,
 					label: 'IOT-Broker',
-					color: {background:'#7eff9c', border:'#05ff1e'}
+					color: {background:'#E55812', border:'#E55812'}
 				});
 
 				network = new vis.Network(container, data, options);
@@ -308,56 +311,62 @@
 
 			// Handle beacon message
 			function mqttHandleBeacon(message) {
-				if (JSON.parse(message.payloadString)) {
-					let beacon = JSON.parse(message.payloadString);
-					let idTrim = beacon.id.replace(/[^A-Za-z0-9_]/gim,"");
+				let beacon;
 
-					if (idTrim === "") {
-						console.log("Ignoring an emppty ID");
-						return;
-					}
-
-					let time = moment().format("HH:mm:ss");
-					let uptime = moment.duration(beacon.uptime).humanize();
-					let symbol_signal = '';
-
-					if (beacon.type === 1) {
-						if (beacon.rssi === undefined) {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:lightgrey;" class="fas fa-wifi"></i>';
-						} else if (Math.abs(beacon.rssi) == 0) {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-ethernet"></i>';
-						} else if (Math.abs(beacon.rssi) <= 50) {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-wifi"></i>';
-						} else if (Math.abs(beacon.rssi) <= 65) {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:yellow;" class="fas fa-wifi"></i>';
-						} else if (Math.abs(beacon.rssi) <= 80) {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:orange;" class="fas fa-wifi"></i>';
-						} else {
-							symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:red;" class="fas fa-wifi"></i>';
-						}
-
-						if (!nodesDataset.get(beacon.id)) {
-							$("#iotListBody").append('<tr id="' + idTrim + '"><th scope="row" class="id"></th><td class="device"></td><td class="desc"></td><td class="rssi"></td><td class="uptime"></td><td class="lastBeacon"></td></tr>');
-						}
-						$("#" + idTrim + " > th.id").data('id', beacon.id);
-						$("#" + idTrim + " > th.id").text(beacon.id);
-						$("#" + idTrim + " > td.device").text(beacon.device);
-						$("#" + idTrim + " > td.device").text(beacon.device);
-						$("#" + idTrim + " > td.desc").text(beacon.desc);
-						$("#" + idTrim + " > td.rssi").html(symbol_signal);
-						$("#" + idTrim + " > td.uptime").text(uptime);
-						$("#" + idTrim + " > td.lastBeacon").text(time);
-
-					} else if (beacon.type === 2) {
-						symbol_signal = '<i title="RSSI : ' + beacon.rssi + '" style="color:red;" class="fas fa-times"></i>';
-						// Update existing entry ...
-						if (nodesDataset.get(beacon.id)){
-							$("#" + idTrim + " > td.rssi").html(symbol_signal);
-						}
-					}
-
-					updateNode(beacon);
+				try {
+					beacon = JSON.parse(message.payloadString);
+				} catch(e) {
+					console.log("Could not parse beacon, skip.");
+					return;
 				}
+
+				let idTrim = beacon.id.replace(/[^A-Za-z0-9_]/gim,"");
+
+				if (idTrim === "") {
+					console.log("Ignoring an emppty ID");
+					return;
+				}
+
+				let time = moment().format("HH:mm:ss");
+				let uptime = moment.duration(beacon.uptime).humanize();
+				let symbol_signal = '';
+
+				if (beacon.type === 1) {
+					if (beacon.rssi === undefined) {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:lightgrey;" class="fas fa-wifi"></i>';
+					} else if (Math.abs(beacon.rssi) == 0) {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-ethernet"></i>';
+					} else if (Math.abs(beacon.rssi) <= 50) {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:green;" class="fas fa-wifi"></i>';
+					} else if (Math.abs(beacon.rssi) <= 65) {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:yellow;" class="fas fa-wifi"></i>';
+					} else if (Math.abs(beacon.rssi) <= 80) {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:orange;" class="fas fa-wifi"></i>';
+					} else {
+						symbol_signal = '<i title="RSSI : ' + Number(beacon.rssi) + '" style="color:red;" class="fas fa-wifi"></i>';
+					}
+
+					if (!nodesDataset.get(beacon.id)) {
+						$("#iotListBody").append('<tr id="' + idTrim + '"><th scope="row" class="id"></th><td class="device"></td><td class="desc"></td><td class="rssi"></td><td class="uptime"></td><td class="lastBeacon"></td></tr>');
+					}
+					$("#" + idTrim + " > th.id").data('id', beacon.id);
+					$("#" + idTrim + " > th.id").text(beacon.id);
+					$("#" + idTrim + " > td.device").text(beacon.device);
+					$("#" + idTrim + " > td.device").text(beacon.device);
+					$("#" + idTrim + " > td.desc").text(beacon.desc);
+					$("#" + idTrim + " > td.rssi").html(symbol_signal);
+					$("#" + idTrim + " > td.uptime").text(uptime);
+					$("#" + idTrim + " > td.lastBeacon").text(time);
+
+				} else if (beacon.type === 2) {
+					symbol_signal = '<i title="RSSI : ' + beacon.rssi + '" style="color:red;" class="fas fa-times"></i>';
+					// Update existing entry ...
+					if (nodesDataset.get(beacon.id)){
+						$("#" + idTrim + " > td.rssi").html(symbol_signal);
+					}
+				}
+
+				updateNode(beacon);
 			}
 
 			// Handle data message

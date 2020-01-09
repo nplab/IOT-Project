@@ -1,7 +1,3 @@
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_ADS1015.h>
-
 ///////////////////////// COMMON HEADER BEGIN
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -24,10 +20,13 @@ const char *md_key = HMAC_KEY;
 #include <WiFi.h>
 #endif // TARGET_ESP8266
 
+// Buffer size used at various places
+#define BUFFER_SIZE 512
+
 String mqtt_client_id;
 String mqtt_sensor_topic;
 String mqtt_beacon_topic;
-char mqtt_last_will_buffer[256];
+char mqtt_last_will_buffer[BUFFER_SIZE];
 
 // WiFi / MQTT
 WiFiClient espClient;
@@ -39,7 +38,12 @@ static void beacon_send(void);
 static bool mqtt_connect(void);
 static bool wifi_connect(void);
 static bool json_send(const char *mqtt_topic, JsonObject json_data);
+static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
 ///////////////////////// COMMON HEADER END
+
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_ADS1015.h>
 
 Adafruit_ADS1115 ads1115;
 
@@ -60,18 +64,15 @@ void loop(void) {
     return;
   }
 
-  //timeClient.update();
-
   // Send sensor values every SENSOR_INTERVAL
   if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
     last_value_sent = millis();
     ads1115_send();
   }
-
 }
 
 static void ads1115_send() {
-  StaticJsonDocument<512> json_doc;
+  StaticJsonDocument<BUFFER_SIZE> json_doc;
   JsonObject json_data = json_doc.to<JsonObject>();
 
   int16_t adc_diff_01 = ads1115.readADC_Differential_0_1();
@@ -115,10 +116,10 @@ static bool common_setup(void) {
   JsonObject json_data  = json_doc.to<JsonObject>();
   json_data["id"]       = mqtt_client_id;
   json_data["type"]     = 2;
-  serializeJson(json_data, mqtt_last_will_buffer);
+  serializeJson(json_data, mqtt_last_will_buffer, BUFFER_SIZE);
 
 #ifdef OTA_ENABLED
-  ArduinoOTA.setPassword("bruttonetto");
+  ArduinoOTA.setPassword(OTA_PASSWORD);
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
 #endif // TARGET_ESP32
@@ -230,12 +231,11 @@ bool common_loop(void) {
   return true;
 }
 
-
 static void beacon_send(void) {
   uint8_t* bssid = WiFi.BSSID();
   char mac[18];
   char desc[64];
-  StaticJsonDocument<512> json_doc;
+  StaticJsonDocument<BUFFER_SIZE> json_doc;
   JsonObject json_data = json_doc.to<JsonObject>();
 
   snprintf(desc, sizeof(desc), "%s|%d", WiFi.localIP().toString().c_str(), BUILD_ID);
@@ -256,32 +256,10 @@ static void beacon_send(void) {
 }
 
 static bool json_send(const char *mqtt_topic, JsonObject json_data) {
-  char buffer[512];
+  char buffer[BUFFER_SIZE];
   int bufferlen;
 
-#ifdef HMAC_ENABLED
-  byte hmac_hash[32];
-
-  json_data["hmac"] = "";
-  bufferlen = serializeJson(json_data, buffer);
-
-  mbedtls_md_hmac_starts(&md_context, (const unsigned char *) md_key, strlen(md_key));
-  mbedtls_md_hmac_update(&md_context, (const unsigned char *) buffer, bufferlen);
-  mbedtls_md_hmac_finish(&md_context, hmac_hash);
-  json_data["hmac"] = base64::encode(hmac_hash, 32);
-
-#ifdef DEBUG_OUTPUT
-  for (int i= 0; i< sizeof(hmac_hash); i++){
-      char str[3];
-      sprintf(str, "%02X", (int)hmac_hash[i]);
-      Serial.print(str);
-
-  }
-  Serial.println("");
-#endif // DEBUG_OUTPUT
-#endif // HMAC_ENABLED
-
-  bufferlen = serializeJson(json_data, buffer);
+  bufferlen = json_serialize(json_data, buffer, BUFFER_SIZE);
 
 #ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");
@@ -298,6 +276,36 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
 #endif // MQTT_OUTPUT
 
   return true;
+}
+
+static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size) {
+  int buffer_filled = 0;
+
+#ifdef HMAC_ENABLED
+  byte hmac_hash[32];
+
+  json_data["hmac"] = "";
+  buffer_filled = serializeJson(json_data, buffer, buffer_size);
+
+  mbedtls_md_hmac_starts(&md_context, (const unsigned char *) md_key, strlen(md_key));
+  mbedtls_md_hmac_update(&md_context, (const unsigned char *) buffer, buffer_filled);
+  mbedtls_md_hmac_finish(&md_context, hmac_hash);
+  json_data["hmac"] = base64::encode(hmac_hash, 32);
+
+#if 0
+  for (int i= 0; i< sizeof(hmac_hash); i++){
+      char str[3];
+      sprintf(str, "%02X", (int)hmac_hash[i]);
+      Serial.print(str);
+
+  }
+  Serial.println("");
+#endif // DEBUG_OUTPUT
+#endif // HMAC_ENABLED
+
+  buffer_filled = serializeJson(json_data, buffer, buffer_size);
+
+  return buffer_filled;
 }
 
 static bool mqtt_connect(void) {

@@ -1,10 +1,3 @@
-#include <Wire.h>
-#include <Adafruit_SHT31.h>
-#include <Adafruit_TCS34725.h>
-#include <Adafruit_BME680.h>
-#include <Adafruit_MMA8451.h>
-#include <DHT.h>
-
 ///////////////////////// COMMON HEADER BEGIN
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -27,10 +20,13 @@ const char *md_key = HMAC_KEY;
 #include <WiFi.h>
 #endif // TARGET_ESP8266
 
+// Buffer size used at various places
+#define BUFFER_SIZE 512
+
 String mqtt_client_id;
 String mqtt_sensor_topic;
 String mqtt_beacon_topic;
-char mqtt_last_will_buffer[256];
+char mqtt_last_will_buffer[BUFFER_SIZE];
 
 // WiFi / MQTT
 WiFiClient espClient;
@@ -42,7 +38,15 @@ static void beacon_send(void);
 static bool mqtt_connect(void);
 static bool wifi_connect(void);
 static bool json_send(const char *mqtt_topic, JsonObject json_data);
+static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
 ///////////////////////// COMMON HEADER END
+
+#include <Wire.h>
+#include <Adafruit_SHT31.h>
+#include <Adafruit_TCS34725.h>
+#include <Adafruit_BME680.h>
+#include <Adafruit_MMA8451.h>
+#include <DHT.h>
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
@@ -58,12 +62,34 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data);
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-static void tft_print_weather(double temperature, double humidity, double altitude);
-static void tft_print_status(void);
 
 #define TFT_FAILURE_WIFI 1
 #define TFT_FAILURE_MQTT 2
 #endif // TFT_OUTPUT
+
+#ifdef EINK_OUTPUT
+#include <GxEPD.h>
+#include <GxGDEW042T2/GxGDEW042T2.h>      // 4.2" b/w
+#include GxEPD_BitmapExamples
+
+// FreeFonts from Adafruit_GFX
+#include <Fonts/FreeMonoBold9pt7b.h>
+#include <Fonts/FreeMonoBold12pt7b.h>
+#include <Fonts/FreeMonoBold18pt7b.h>
+#include <Fonts/FreeMonoBold24pt7b.h>
+
+
+#include <GxIO/GxIO_SPI/GxIO_SPI.h>
+#include <GxIO/GxIO.h>
+GxIO_Class io(SPI, /*CS=5*/ SS, /*DC=*/ 25, /*RST=*/ 15); // arbitrary selection of 17, 16
+GxEPD_Class eink(io, /*RST=*/ 15, /*BUSY=*/ 4); // arbitrary selection of (16), 4
+
+#endif
+
+#if defined(TFT_OUTPUT) || defined(EINK_OUTPUT)
+static void display_print_weather(double temperature, double humidity, double altitude);
+static void display_print_status(void);
+#endif
 
 bool bme_present    = false;
 bool sht_present    = false;
@@ -129,7 +155,11 @@ void setup(void) {
   // Use this initializer if using a 1.8" TFT screen:
   tft.initR();      // Init ST7735S chip, black tab
   tft.fillScreen(ST7735_BLACK);
-#endif
+#endif // TFT_OUTPUT
+
+#ifdef EINK_OUTPUT
+  eink.init(115200); // enable diagnostic output on Serial
+#endif // TFT_OUTPUT
 
   delay(500);
 }
@@ -167,19 +197,21 @@ void loop(void) {
     }
   }
 
-#ifdef TFT_OUTPUT
+#if defined(TFT_OUTPUT) || defined(EINK_OUTPUT)
   static long last_display_change = 0;
   static uint8_t display_page = 0;
   if (last_display_change == 0 || (millis() - last_display_change) > DISPLAY_INTERVAL) {
 #ifdef DEBUG_OUTPUT
-    Serial.println(F("Changing TFT..."));
+    Serial.println(F("Changing Display..."));
 #endif
     last_display_change = millis();
     display_page = (display_page + 1 ) % 2;
     if (display_page == 0 && bme_present) {
-      tft_print_weather(bme.temperature, bme.humidity, bme.readAltitude(SEALEVELPRESSURE_HPA));
+      display_print_weather(bme.temperature, bme.humidity, bme.readAltitude(SEALEVELPRESSURE_HPA));
+    } else if (display_page == 0 && sht_present)  {
+      display_print_weather(sht31.readTemperature(), sht31.readHumidity(), 0);
     } else {
-      tft_print_status();
+      display_print_status();
     }
   }
 #endif
@@ -219,7 +251,7 @@ static void bme_send(void) {
   json_data["temp"] = bme.temperature;
   json_data["humi"] = bme.humidity;
   json_data["press"] = bme.pressure;
-  
+
   json_send(mqtt_sensor_topic.c_str(), json_data);
 }
 
@@ -266,7 +298,7 @@ static void mma_send() {
 static void tft_print_weather(double temperature, double humidity, double altitude) {
 
   int y_offset        = 3;
-  int x_offset        = 10;
+  int x_offset        = 5;
 
   tft.setTextWrap(false);
   tft.setTextSize(3);
@@ -275,22 +307,25 @@ static void tft_print_weather(double temperature, double humidity, double altitu
   tft.fillRect(0, 0 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_RED);
   tft.fillRect(0, 1 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_BLUE);
   tft.fillRect(0, 2 * tft.height() / 3, tft.width(), tft.height() / 3, ST7735_BLACK);
-  
+
+  tft.drawFastHLine(0, 1 * tft.height() / 3, tft.width(), ST7735_WHITE);
+  tft.drawFastHLine(0, 2 * tft.height() / 3, tft.width(), ST7735_WHITE);
+
   tft.setTextColor(ST7735_WHITE);
-  tft.setCursor(x_offset, 0 + y_offset);
+  tft.setCursor(x_offset, 0 * tft.height() / 3 + 1 * y_offset);
   tft.println(" Temp");
   tft.setCursor(x_offset, tft.getCursorY());
   tft.print(temperature, 1);
   tft.println(" C");
 
-  tft.setCursor(x_offset, 1 * tft.height() / 3 + y_offset);
+  tft.setCursor(x_offset, 1 * tft.height() / 3 + 2 * y_offset);
   tft.setTextColor(ST7735_WHITE);
   tft.println(" Humi");
   tft.setCursor(x_offset, tft.getCursorY());
   tft.print(humidity, 1);
   tft.println(" %");
 
-  tft.setCursor(x_offset, 2 * tft.height() / 3 + y_offset);
+  tft.setCursor(x_offset, 2 * tft.height() / 3 + 3 * y_offset);
   tft.setTextColor(ST7735_WHITE);
   tft.println(" Alti");
   tft.setCursor(x_offset, tft.getCursorY());
@@ -327,6 +362,95 @@ static void tft_print_status(void) {
 }
 #endif
 
+#ifdef EINK_OUTPUT
+static void eink_print_weather(double temperature, double humidity, double altitude) {
+
+  int y_offset        = 25;
+  int x_offset        = 5;
+  eink.setCursor(0, 0);
+
+
+  eink.fillScreen(GxEPD_WHITE);
+  eink.setTextWrap(false);
+  eink.setTextSize(6);
+
+  eink.drawFastHLine(0, 1 * eink.height() / 3, eink.width(), GxEPD_BLACK);
+  eink.drawFastHLine(0, 2 * eink.height() / 3, eink.width(), GxEPD_BLACK);
+
+  eink.setTextColor(GxEPD_BLACK);
+  eink.setCursor(x_offset, 0 * eink.height() / 3 + 1 * y_offset);
+  eink.print("Temp ");
+  eink.print(temperature, 1);
+  eink.println(" C");
+
+  eink.setCursor(x_offset, 1 * eink.height() / 3 + 1 * y_offset);
+  eink.setTextColor(GxEPD_BLACK);
+  eink.print("Humi ");
+  eink.print(humidity, 1);
+  eink.println(" %");
+
+  eink.setCursor(x_offset, 2 * eink.height() / 3 + 1 * y_offset);
+  eink.setTextColor(GxEPD_BLACK);
+  eink.print("Alti ");
+  eink.print(altitude, 0);
+  eink.println(" M");
+
+  eink.update();
+}
+
+static void eink_print_status(void) {
+  eink.fillScreen(GxEPD_WHITE);
+  eink.setTextColor(GxEPD_BLACK);
+  eink.setTextSize(3);
+  eink.setCursor(0, 20);
+
+  eink.print("RSSI ");
+  eink.println(WiFi.RSSI());
+  eink.println("");
+  eink.print("MAC ");
+  eink.println(String(WiFi.macAddress()));
+  eink.println("");
+  eink.print("IP ");
+  eink.println(WiFi.localIP());
+  eink.println("");
+  eink.print("SM ");
+  eink.println(WiFi.subnetMask());
+  eink.println("");
+  eink.print("GW ");
+  eink.println(WiFi.gatewayIP());
+  eink.println("");
+  eink.print("MQTT status ");
+  if (mqtt_client.state() == MQTT_CONNECTED) {
+    eink.println("Connected!");
+  } else {
+    eink.println(mqtt_client.state());
+  }
+  eink.update();
+}
+#endif
+
+#if defined(TFT_OUTPUT) || defined(EINK_OUTPUT)
+static void display_print_weather(double temperature, double humidity, double altitude) {
+#ifdef TFT_OUTPUT
+  tft_print_weather(temperature, humidity, altitude);
+#endif
+#ifdef EINK_OUTPUT
+  eink_print_weather(temperature, humidity, altitude);
+#endif
+}
+
+static void display_print_status(void) {
+#ifdef TFT_OUTPUT
+  tft_print_status();
+#endif
+#ifdef EINK_OUTPUT
+  eink_print_status();
+#endif
+}
+
+#endif
+
+
 ///////////////////////// COMMON FUNCTIONS BEGIN
 static bool common_setup(void) {
   Serial.begin(115200);
@@ -354,10 +478,10 @@ static bool common_setup(void) {
   JsonObject json_data  = json_doc.to<JsonObject>();
   json_data["id"]       = mqtt_client_id;
   json_data["type"]     = 2;
-  serializeJson(json_data, mqtt_last_will_buffer);
+  serializeJson(json_data, mqtt_last_will_buffer, BUFFER_SIZE);
 
 #ifdef OTA_ENABLED
-  ArduinoOTA.setPassword("bruttonetto");
+  ArduinoOTA.setPassword(OTA_PASSWORD);
 #ifdef TARGET_ESP32
   ArduinoOTA.setMdnsEnabled(false);
 #endif // TARGET_ESP32
@@ -469,12 +593,11 @@ bool common_loop(void) {
   return true;
 }
 
-
 static void beacon_send(void) {
   uint8_t* bssid = WiFi.BSSID();
   char mac[18];
   char desc[64];
-  StaticJsonDocument<512> json_doc;
+  StaticJsonDocument<BUFFER_SIZE> json_doc;
   JsonObject json_data = json_doc.to<JsonObject>();
 
   snprintf(desc, sizeof(desc), "%s|%d", WiFi.localIP().toString().c_str(), BUILD_ID);
@@ -495,32 +618,10 @@ static void beacon_send(void) {
 }
 
 static bool json_send(const char *mqtt_topic, JsonObject json_data) {
-  char buffer[512];
+  char buffer[BUFFER_SIZE];
   int bufferlen;
 
-#ifdef HMAC_ENABLED
-  byte hmac_hash[32];
-
-  json_data["hmac"] = "";
-  bufferlen = serializeJson(json_data, buffer);
-
-  mbedtls_md_hmac_starts(&md_context, (const unsigned char *) md_key, strlen(md_key));
-  mbedtls_md_hmac_update(&md_context, (const unsigned char *) buffer, bufferlen);
-  mbedtls_md_hmac_finish(&md_context, hmac_hash);
-  json_data["hmac"] = base64::encode(hmac_hash, 32);
-
-#ifdef DEBUG_OUTPUT
-  for (int i= 0; i< sizeof(hmac_hash); i++){
-      char str[3];
-      sprintf(str, "%02X", (int)hmac_hash[i]);
-      Serial.print(str);
-
-  }
-  Serial.println("");
-#endif // DEBUG_OUTPUT
-#endif // HMAC_ENABLED
-
-  bufferlen = serializeJson(json_data, buffer);
+  bufferlen = json_serialize(json_data, buffer, BUFFER_SIZE);
 
 #ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");
@@ -537,6 +638,36 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
 #endif // MQTT_OUTPUT
 
   return true;
+}
+
+static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size) {
+  int buffer_filled = 0;
+
+#ifdef HMAC_ENABLED
+  byte hmac_hash[32];
+
+  json_data["hmac"] = "";
+  buffer_filled = serializeJson(json_data, buffer, buffer_size);
+
+  mbedtls_md_hmac_starts(&md_context, (const unsigned char *) md_key, strlen(md_key));
+  mbedtls_md_hmac_update(&md_context, (const unsigned char *) buffer, buffer_filled);
+  mbedtls_md_hmac_finish(&md_context, hmac_hash);
+  json_data["hmac"] = base64::encode(hmac_hash, 32);
+
+#if 0
+  for (int i= 0; i< sizeof(hmac_hash); i++){
+      char str[3];
+      sprintf(str, "%02X", (int)hmac_hash[i]);
+      Serial.print(str);
+
+  }
+  Serial.println("");
+#endif // DEBUG_OUTPUT
+#endif // HMAC_ENABLED
+
+  buffer_filled = serializeJson(json_data, buffer, buffer_size);
+
+  return buffer_filled;
 }
 
 static bool mqtt_connect(void) {

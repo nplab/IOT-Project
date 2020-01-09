@@ -1,3 +1,7 @@
+body {
+	transition-duration: 50ms;
+}
+
 footer {
 	//border-top: 1px solid #aaa;
 	margin-top: 5px;
@@ -47,6 +51,11 @@ h4 {
 	font-size: 14pt;
 }
 
+div.container {
+	background-color: white;
+	border-radius: 0.25rem;
+	margin-top: 1rem;
+}
 
 
 

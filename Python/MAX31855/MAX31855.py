@@ -98,7 +98,7 @@ def record_and_display(config):
         for topic, color in zip(config['mqtt_topics'], palette):
             bokeh_csource[topic] = ColumnDataSource(data = dict(x = [], y = []))
             bokeh_figure.line(x = 'x', y = 'y', source = bokeh_csource[topic], color = color)
-            bokeh_figure.circle(x = 'x', y = 'y', source = bokeh_csource[topic], legend = topic, color = color, fill_color = 'white')
+            bokeh_figure.circle(x = 'x', y = 'y', source = bokeh_csource[topic], legend_label = topic, color = color, fill_color = 'white')
 
         bokeh_figure.yaxis.axis_label = 'Temperature (C)'
         bokeh_figure.xaxis.axis_label = 'Time'

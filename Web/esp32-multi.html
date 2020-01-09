@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>IOT Dashboard</title>
+
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/all.min.css" rel="stylesheet">
+	<link href="css/vis.min.css" rel="stylesheet">
+	<link href="css/iot.css" rel="stylesheet">
+
+	<script src="js/jquery-3.3.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script src="js/mqttws31.min.js"></script>
+	<script src="js/vis.min.js"></script>
+	<script src="js/moment.js"></script>
+	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+
+<body>
+	<main>
+		<div class="container">
+			<img src="dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<div class="card-deck mb-3 text-center">
+				<div class="card mb-4 box-shadow">
+					<div class="card-header">
+						<h3 class="font-weight-normal my-0">SenseView</h3>
+					</div>
+					<div class="card-body">
+							<div class="row">
+								<div class="col-sm-4 center-block">
+									<div id="gauge_temp" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
+								</div>
+								<div class="col-sm-4">
+									<div id="gauge_humi" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
+								</div>
+								<div class="col-sm-4">
+									<div id="gauge_lux" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
+								</div>
+							</div>
+					</div>
+
+					<div class="card-footer text-muted">
+						<a href="mailto:weinrank@fh-muenster.de">Felix Weinrank</a> - <a href="https://github.com/nplab">Network Programming Laboratory of Münster University of Applied Sciences</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</main>
+
+
+	<script>
+		"use strict";
+		$(document).ready(function(){
+			let network;
+			let mqttServerAddress = '10.42.10.86';
+
+			// MQTT
+			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
+			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+
+			let gauges = {};
+
+			google.charts.load('current', {'packages':['gauge']});
+			google.charts.setOnLoadCallback(initializeCharts);
+
+			function initializeCharts() {
+				gauges.sht31 = {}
+				gauges.sht31.temp = {}
+				gauges.sht31.temp.data = google.visualization.arrayToDataTable([
+					['Label', 'Value'],
+					['Temp', 0]
+				]);
+				gauges.sht31.temp.options = {
+					width: 200, height: 200,
+					redFrom: 90, redTo: 100,
+					yellowFrom:75, yellowTo: 90,
+					minorTicks: 5
+				};
+				gauges.sht31.temp.chart = new google.visualization.Gauge(document.getElementById('gauge_temp'));
+
+				gauges.sht31.humi = {}
+				gauges.sht31.humi.data = google.visualization.arrayToDataTable([
+					['Label', 'Value'],
+					['Humidity', 0]
+				]);
+				gauges.sht31.humi.options = {
+					width: 200, height: 200,
+					redFrom: 90, redTo: 100,
+					yellowFrom:75, yellowTo: 90,
+					minorTicks: 5,
+					animation: {
+						easing: 'inAndOut'
+					}
+				};
+				gauges.sht31.humi.chart = new google.visualization.Gauge(document.getElementById('gauge_humi'));
+
+				gauges.tcs34725 = {}
+				gauges.tcs34725.lux = {}
+				gauges.tcs34725.lux.data = google.visualization.arrayToDataTable([
+					['Label', 'Value'],
+					['Light', 0]
+				]);
+				gauges.tcs34725.lux.options = {
+					width: 200, height: 200,
+					max: 4000,
+					minorTicks: 5,
+					animation: {
+						easing: 'inAndOut'
+					}
+				};
+				gauges.tcs34725.lux.chart = new google.visualization.Gauge(document.getElementById('gauge_lux'));
+
+				// MQTT - set callback handlers and connect
+				mqttClient.onConnectionLost = mqttOnConnectionLost;
+				mqttClient.onMessageArrived = mqttOnMessageArrived;
+				mqttClient.connect({
+					onSuccess : mqttOnConnect,
+					onFailure : mqttOnConnectFailure,
+					timeout : 5
+				});
+			}
+
+			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
+
+			// MQTT Client - connected
+			function mqttOnConnect() {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log("mqttOnConnect");
+
+				$('#iotData').attr('class', 'card-body');
+
+				mqttClient.subscribe("sensor/3C:71:BF:AA:8F:C4");
+				mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
+			}
+
+			// MQTT Client - connect failed
+			function mqttOnConnectFailure(responseObject) {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
+			}
+
+			// MQTT Client - connection lost
+			function mqttOnConnectionLost(responseObject) {
+				if (responseObject.errorCode !== 0) {
+					console.log("onConnectionLost:" + responseObject.errorMessage);
+				}
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
+			}
+
+			// Handle data message
+			function mqttHandleData(message) {
+				$("#iotModalPre").append(message.payloadString).append("\n");
+				var data = JSON.parse(message.payloadString);
+
+				if (!data.hasOwnProperty("sensor")) {
+					console.log("Missing 'sensor' property, ignoring.");
+					return;
+				}
+
+				switch (data.sensor) {
+					case "sht31":
+						handleSht31(data);
+						break;
+
+					case "tcs34725":
+						handleTcs34725(data);
+						break;
+
+					case "mma8451":
+						handleMma8451(data);
+						break;
+				}
+			}
+
+			function handleSht31(data) {
+				//console.log("Handling SHT31");
+				if (data.hasOwnProperty("temp")) {
+					gauges.sht31.temp.data.setValue(0, 1, data.temp.toFixed(1));
+					gauges.sht31.temp.chart.draw(gauges.sht31.temp.data, gauges.sht31.temp.options);
+				}
+
+				if (data.hasOwnProperty("humi")) {
+					gauges.sht31.humi.data.setValue(0, 1, data.humi.toFixed(1));
+					gauges.sht31.humi.chart.draw(gauges.sht31.humi.data, gauges.sht31.humi.options);
+				}
+			}
+
+			function handleTcs34725(data) {
+				//console.log("Handling TCS34725");
+				if (data.hasOwnProperty("lux")) {
+					gauges.tcs34725.lux.data.setValue(0, 1, data.lux);
+					gauges.tcs34725.lux.chart.draw(gauges.tcs34725.lux.data, gauges.tcs34725.lux.options);
+				}
+			}
+
+			function handleMma8451(data) {
+				//console.log("Handling TCS34725");
+				if (data.hasOwnProperty("x") && data.hasOwnProperty("y") && data.hasOwnProperty("z")) {
+					console.log("MMA8451");
+					console.log(data);
+					let bg_r = (((data.x + 8192) / 16384) *  255);
+					let bg_g = (((data.y + 8192) / 16384) *  255);
+					let bg_b = (((data.z + 8192) / 16384) *  255);
+					$('body').css('background-color','rgb('+bg_r+','+bg_g+','+bg_b+')');
+				}
+			}
+
+			// General MQTT message handler
+			function mqttOnMessageArrived(message) {
+				console.log(message.payloadString);
+				if (message.destinationName.startsWith("beacon")) {
+					//console.log(message);
+				} else if (message.destinationName.startsWith("sensor")) {
+					mqttHandleData(message);
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			}
+
+		});
+	</script>
+</body>
+</html>
