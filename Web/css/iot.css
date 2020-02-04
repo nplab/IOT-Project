@@ -57,5 +57,13 @@ div.container {
 	margin-top: 1rem;
 }
 
+div.gauge {
+	border: 1px solid #ccc;
+	border-radius: 5pt;
+	margin: 10px 0;
+	font-size: 16pt;
+	font-weight: bold;
+}
+
 
 

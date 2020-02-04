@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>IOT Dashboard</title>
+
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/all.min.css" rel="stylesheet">
+	<link href="css/iot.css" rel="stylesheet">
+
+	<script src="js/jquery-3.3.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script src="js/mqttws31.min.js"></script>
+	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+
+<body>
+	<main>
+		<div class="container">
+			<img src="dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<div class="card-deck mb-3 text-center">
+				<div class="card mb-4 box-shadow">
+					<div class="card-header">
+						<h3 class="font-weight-normal my-0">Tractor CAN <i id="activity-indicator" class="float-right far fa-dot-circle"></i></h3>
+					</div>
+					<div class="card-body">
+							<div class="row">
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card mb-3">
+										<h4 class="card-header">Engine RPM</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val rpm"></span> U/Min
+											</h3>
+										</div>
+									</div>
+								</div>
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card mb-3">
+										<h4 class="card-header">Engine Torque</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val torque"></span> %
+											</h3>
+										</div>
+									</div>
+								</div>
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card mb-3">
+										<h4 class="card-header">Transmission Oil Temperature</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val trans_oil_temp"></span> °C
+											</h3>
+										</div>
+									</div>
+								</div>
+							</div>
+							<div class="row">
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card">
+										<h4 class="card-header">Engine Coolant Temp</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val eng_coolant_temp"></span> °C
+											</h3>
+										</div>
+									</div>
+								</div>
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card">
+										<h4 class="card-header">Engine Oil Pressure</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val eng_oil_press "></span> kPa
+											</h3>
+										</div>
+									</div>
+								</div>
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div class="card">
+										<h4 class="card-header">Engine Oil Temp</h4>
+										<div class="card-body">
+											<h3 class="card-title text-monospace mb-0">
+												<span class="can-val eng_oil_temp"></span> °C
+											</h3>
+										</div>
+									</div>
+								</div>
+							</div>
+					</div>
+					<div class="card-footer text-muted">
+						<a href="mailto:weinrank@fh-muenster.de">Felix Weinrank</a> - <a href="https://github.com/nplab">Network Programming Laboratory of Münster University of Applied Sciences</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</main>
+
+
+	<script>
+		"use strict";
+		$(document).ready(function(){
+			let network;
+			let mqttServerAddress = '10.42.10.86';
+
+			// MQTT
+			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
+			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+
+			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
+
+			// MQTT Client - connected
+			function mqttOnConnect() {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log("mqttOnConnect");
+
+				$('#iotData').attr('class', 'card-body');
+
+				mqttClient.subscribe("sensor/can-sender");
+				//mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
+			}
+
+			// MQTT Client - connect failed
+			function mqttOnConnectFailure(responseObject) {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
+			}
+
+			// MQTT Client - connection lost
+			function mqttOnConnectionLost(responseObject) {
+				if (responseObject.errorCode !== 0) {
+					console.log("onConnectionLost:" + responseObject.errorMessage);
+				}
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
+			}
+
+			// Handle data message
+			function mqttHandleData(message) {
+				$("#iotModalPre").append(message.payloadString).append("\n");
+				var data = JSON.parse(message.payloadString);
+
+				jQuery.each(data, function(i, val) {
+					console.log(val + " " + i);
+					$(".can-val." + i).text(val);
+				});
+			}
+
+			// General MQTT message handler
+			function mqttOnMessageArrived(message) {
+				console.log(message.payloadString);
+				if (message.destinationName.startsWith("beacon")) {
+					//console.log(message);
+				} else if (message.destinationName.startsWith("sensor")) {
+					mqttHandleData(message);
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			}
+
+			// MQTT - set callback handlers and connect
+			mqttClient.onConnectionLost = mqttOnConnectionLost;
+			mqttClient.onMessageArrived = mqttOnMessageArrived;
+			mqttClient.connect({
+				onSuccess : mqttOnConnect,
+				onFailure : mqttOnConnectFailure,
+				timeout : 5
+			});
+		});
+	</script>
+</body>
+</html>

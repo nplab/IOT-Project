@@ -23,7 +23,7 @@
 			<div class="card-deck mb-3 text-center">
 				<div class="card mb-4 box-shadow">
 					<div class="card-header">
-						<h3 class="font-weight-normal my-0">SenseView</h3>
+						<h3 class="font-weight-normal my-0">MC3204</h3>
 					</div>
 					<div class="card-body">
 							<div class="row">
@@ -38,7 +38,6 @@
 								</div>
 							</div>
 					</div>
-
 					<div class="card-footer text-muted">
 						<a href="mailto:weinrank@fh-muenster.de">Felix Weinrank</a> - <a href="https://github.com/nplab">Network Programming Laboratory of Münster University of Applied Sciences</a>
 					</div>
@@ -111,7 +110,6 @@
 				]);
 
 				charts.c01.voltages.options = {
-
 					//width: 400,
 					//height: 100,
 					hAxis: {
@@ -121,7 +119,9 @@
 					vAxis: {
 						textPosition: 'none'
 					},
-					legend: { position: "none" }};
+					legend: {
+						position: "none" }
+					};
 				charts.c01.voltages.chart = new google.visualization.BarChart(document.getElementById('bar_mv_diff_01'));
 				charts.c01.voltages.chart.draw(charts.c01.voltages.data, charts.c01.voltages.options);
 
@@ -217,7 +217,6 @@
 					console.log("Discarding unhandled topic : " + message.destinationName);
 				}
 			}
-
 		});
 	</script>
 </body>

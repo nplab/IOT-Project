@@ -8,8 +8,8 @@ import ujson
 import utime
 import uos
 
-WIFI_SSID       = 'WIFI_NAME'
-WIFI_PASSWORD   = 'WIFI_PSK'
+WIFI_SSID       = 'WIFI-NETWORK'
+WIFI_PASSWORD   = 'WIFI-PASSWORD'
 MQTT_SERVER     = '10.42.10.86'
 
 # We take the WIFI MAC as the device ID

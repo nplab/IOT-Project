@@ -1,3 +1,7 @@
+# Python Examples
+This directory contains Python based examples.
+Some of these examples require additional Python modules or have been optimized to work with Jupyter Notebooks.
+
 # Local Python Setup
 Create an virtual environment, activate the `venv` and install required dependencies.
 ```
