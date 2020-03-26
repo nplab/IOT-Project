@@ -27,11 +27,8 @@
 					</div>
 					<div class="card-body">
 							<div class="row">
-								<div class="col-sm-6 justify-content-center align-items-center" style="height: 500px;">
-									<div id="gauge_mv_c0" style="width: 100%; height: 100%;"></div>
-								</div>
-								<div class="col-sm-6 justify-content-center align-items-center">
-									<div id="gauge_mv_c1" style="width: 100%; height: 100%;"></div>
+								<div class="col-sm-12 justify-content-center align-items-center" style="height: 500px;">
+									<div id="scatter_mv" style="width: 100%; height: 100%;"></div>
 								</div>
 							</div>
 							<div class="row">
@@ -64,49 +61,37 @@
 			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
 			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
 
-			let charts = {};
+			let chart = {};
 
-			google.charts.load('current', {packages: ['corechart', 'bar', 'gauge']});
+			google.charts.load('current', {packages: ['corechart']});
 			google.charts.setOnLoadCallback(initializeCharts);
 
+
+
 			function initializeCharts() {
-				charts.c0 = {}
-				charts.c0.voltages = {}
-				charts.c0.voltages.data = google.visualization.arrayToDataTable([
-					['Label', 'Value'],
-					['Channel 0', 0]
+
+				chart.data = google.visualization.arrayToDataTable([
+					['Chan 0', 'Chan 1'],
+					[ 8,      12],
+					[ 4,      5.5],
+					[ 11,     14],
+					[ 4,      5],
+					[ 3,      3.5],
+					[ 6.5,    7]
 				]);
 
-				charts.c0.voltages.options = {
-					min: -1000,
-					max: 1000,
-					minorTicks: 5,
-					majorTicks: 2,
-					animation: {
-						duration: 10,
-				}
+				console.log(chart.data)
 
+				chart.options = {
+					title: 'Age vs. Weight comparison',
+					hAxis: {title: 'Channel 0', minValue: 0, maxValue: 3000},
+					vAxis: {title: 'Channel 1', minValue: 0, maxValue: 3000},
+					legend: 'none'
 				};
-				charts.c0.voltages.chart = new google.visualization.Gauge(document.getElementById('gauge_mv_c0'));
-				charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
 
-				charts.c1 = {}
-				charts.c1.voltages = {}
-				charts.c1.voltages.data = google.visualization.arrayToDataTable([
-					['Label', 'Value'],
-					['Channel 1', 0]
-				]);
+				chart.chart_obj = new google.visualization.ScatterChart(document.getElementById('scatter_mv'));
 
-				charts.c1.voltages.options = {
-					min: -1000,
-					max: 1000,
-					minorTicks: 5,
-					animation: {
-						duration: 10,
-					}
-				};
-				charts.c1.voltages.chart = new google.visualization.Gauge(document.getElementById('gauge_mv_c1'));
-				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
+				chart.chart_obj.draw(chart.data, chart.options);
 
 				// MQTT - set callback handlers and connect
 				mqttClient.onConnectionLost = mqttOnConnectionLost;
@@ -127,7 +112,7 @@
 
 				$('#iotData').attr('class', 'card-body');
 
-				mqttClient.subscribe("sensor/A4:CF:12:78:4F:F0");
+				mqttClient.subscribe("sensor/3C:71:BF:AA:7B:18");
 				//mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
 			}
 
@@ -177,19 +162,22 @@
 
 			function handleMcp3204(data) {
 				//console.log("Handling SHT31");
-				charts.c0.voltages.data.setValue(0, 1, data.mv_c0.toFixed(1));
-				charts.c1.voltages.data.setValue(0, 1, data.mv_c1.toFixed(1));
+				//charts.c0.voltages.data.setValue(0, 1, data.mv_c0.toFixed(1));
+				//charts.c1.voltages.data.setValue(0, 1, data.mv_c1.toFixed(1));
 				//charts.all.voltages.data.setValue(1, 1, data.mv_c1.toFixed(1));
 				//charts.all.voltages.data.setValue(2, 1, data.mv_c2.toFixed(1));
 				//charts.all.voltages.data.setValue(3, 1, data.mv_c3.toFixed(1));
-				charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
-				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
+				//charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
+				//charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
 
-				charts.c0.voltages.options.min = $("#c0_scale_min").val();
-				charts.c1.voltages.options.min = $("#c1_scale_min").val();
+				//charts.c0.voltages.options.min = $("#c0_scale_min").val();
+				//charts.c1.voltages.options.min = $("#c1_scale_min").val();
 
-				charts.c0.voltages.options.max = $("#c0_scale_max").val();
-				charts.c1.voltages.options.max = $("#c1_scale_max").val();
+				//charts.c0.voltages.options.max = $("#c0_scale_max").val();
+				//charts.c1.voltages.options.max = $("#c1_scale_max").val();
+
+				chart.data.addRow([Math.round(data.mv_c0), Math.round(data.mv_c1)]);
+				chart.chart_obj.draw(chart.data, chart.options);
 
 
 				$("#value_c0").val(Math.round(data.mv_c0));

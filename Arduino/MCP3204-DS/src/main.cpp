@@ -62,26 +62,79 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data);
 static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
 ///////////////////////// COMMON HEADER END
 
+#include <SPI.h>
+#include <Wire.h>
+#include <Mcp320x.h>
+
+#define SPI_CS      5        // SPI slave select
+#define ADC_VREF    3300     // 3.3V Vref
+#define ADC_CLK     1600000  // SPI clock 1.6MHz
+
 #define SENSOR_INTERVAL 100
 
+MCP3204 adc(ADC_VREF, SPI_CS);
+
+static void mcp3204_send(void);
+
+#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  30        /* Time ESP32 will go to sleep (in seconds) */
+
 void setup(void) {
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, 1);
+
   common_setup();
-  delay(500);
+
+  // configure PIN mode
+  pinMode(SPI_CS, OUTPUT);
+  // set initial PIN state
+  digitalWrite(SPI_CS, HIGH);
+
+  // initialize SPI interface for MCP3204
+  SPISettings settings(ADC_CLK, MSBFIRST, SPI_MODE0);
+  SPI.begin();
+  SPI.beginTransaction(settings);
+
+  for (int toggle_count = 0; toggle_count < 10; toggle_count++) {
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    delay(100);
+  }
+
+  if (wifi_connect() && mqtt_connect()) {
+    mqtt_client.loop();
+    beacon_send();
+    mcp3204_send();
+  }
+
+  digitalWrite(LED_BUILTIN, 0);
+
+  mqtt_client.disconnect();
+
+  Serial.println("Going to sleep - bye bye!");
+  Serial.flush();
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  esp_deep_sleep_start();
+
 }
 
 void loop(void) {
-  static long last_value_sent;
+  // nothing happens here...
+}
 
-  if (!common_loop()) {
-    // Something went wrong, skip further execution
-    return;
-  }
+static void mcp3204_send() {
+  StaticJsonDocument<512> json_doc;
+  JsonObject json_data = json_doc.to<JsonObject>();
+  uint16_t raw = adc.read(MCP3204::Channel::SINGLE_0);
+  // get analog value
+  uint16_t mv = adc.toAnalog(raw);
 
-  // Send sensor values every SENSOR_INTERVAL
-  if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
-    last_value_sent = millis();
-    // Action starts here...
-  }
+  json_data["sensor"]   = "mcp3204";
+  json_data["uptime"]   = millis();
+  json_data["mv"]       = mv;
+
+  json_send(mqtt_sensor_topic.c_str(), json_data);
+
 }
 
 ///////////////////////// COMMON FUNCTIONS BEGIN

@@ -1,4 +1,25 @@
 ///////////////////////// COMMON HEADER BEGIN
+#define CONFIG_WIFI_NAME "WIFI_NETWORK"
+#define CONFIG_WIFI_PSK "WIFI_PSK"
+#define CONFIG_MQTT_BROKER_ADDRESS "10.42.10.86"
+
+#define DEBUG_OUTPUT
+#define MQTT_OUTPUT
+
+#define OTA_ENABLED
+//#define OTA_PASSWORD "bruttonetto"
+
+//#define HMAC_ENABLED
+#define HMAC_KEY "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f"
+
+#define BEACON_INTERVAL 5000
+
+//#define MQTT_MAX_PACKET_SIZE 512 << BE AWARE OF THIS!!
+
+#ifndef DEVICE_TYPE
+#define DEVICE_TYPE "GENERIC-ESP"
+#endif
+
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
@@ -14,11 +35,11 @@ mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
 const char *md_key = HMAC_KEY;
 #endif // HMAC_ENABLED
 
-#ifdef TARGET_ESP8266
-#include <ESP8266WiFi.h>
-#else // TARGET_ESP8266
+#ifdef ESP32
 #include <WiFi.h>
-#endif // TARGET_ESP8266
+#else // ESP32
+#include <ESP8266WiFi.h>
+#endif // ESP32
 
 // Buffer size used at various places
 #define BUFFER_SIZE 512
@@ -39,17 +60,17 @@ static bool mqtt_connect(void);
 static bool wifi_connect(void);
 static bool json_send(const char *mqtt_topic, JsonObject json_data);
 static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
-
-const char BUILD_DATE[] = { __DATE__[9], __DATE__[10], __DATE__[0], __DATE__[1], __DATE__[2], __DATE__[4], __DATE__[5], '\0'}; // DD MMM YY
 ///////////////////////// COMMON HEADER END
+
+#define SPI_CS      5        // SPI slave select (15/5)
+#define ADC_VREF    3300     // 3.3V Vref
+#define ADC_CLK     1600000  // SPI clock 1.6MHz
+
+#define SENSOR_INTERVAL 100
 
 #include <SPI.h>
 #include <Wire.h>
 #include <Mcp320x.h>
-
-#define SPI_CS      5        // SPI slave select
-#define ADC_VREF    3300     // 3.3V Vref
-#define ADC_CLK     1600000  // SPI clock 1.6MHz
 
 MCP3204 adc(ADC_VREF, SPI_CS);
 
@@ -81,14 +102,11 @@ void loop(void) {
     return;
   }
 
-  //timeClient.update();
-
   // Send sensor values every SENSOR_INTERVAL
   if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
     last_value_sent = millis();
     mcp3204_send();
   }
-
 }
 
 static void mcp3204_send() {
@@ -103,16 +121,6 @@ static void mcp3204_send() {
   json_data["mv_c3"]    = adc.toAnalog(adc.read(MCP3204::Channel::SINGLE_3));
 
   json_send(mqtt_sensor_topic.c_str(), json_data);
-
-  static long hz_counter;
-  static long hz_counter_delta;
-
-  if ((millis() - hz_counter_delta) >= 1000) {
-    Serial.printf("Freq : %ld Hz\n", hz_counter);
-    hz_counter_delta = millis();
-    hz_counter = 0;
-  }
-  hz_counter++;
 }
 
 ///////////////////////// COMMON FUNCTIONS BEGIN
@@ -127,9 +135,7 @@ static bool common_setup(void) {
 
   // WIFI
   Serial.printf("Connecting to WIFI network: %s\n", CONFIG_WIFI_NAME);
-  WiFi.mode(WIFI_STA);
   WiFi.begin(CONFIG_WIFI_NAME, CONFIG_WIFI_PSK);
-  wifi_connect();
 
   // MQTT setup
   mqtt_client.setServer(CONFIG_MQTT_BROKER_ADDRESS, 1883);
@@ -145,10 +151,14 @@ static bool common_setup(void) {
   serializeJson(json_data, mqtt_last_will_buffer, BUFFER_SIZE);
 
 #ifdef OTA_ENABLED
+#ifdef OTA_PASSWORD
   ArduinoOTA.setPassword(OTA_PASSWORD);
-#ifdef TARGET_ESP32
+#else // OTA_PASSWORD
+  ArduinoOTA.setPassword(mqtt_client_id.c_str());
+#endif // OTA_PASSWORD
+#ifdef ESP32
   ArduinoOTA.setMdnsEnabled(false);
-#endif // TARGET_ESP32
+#endif // ESP32
   ArduinoOTA.setPort(54321);
   ArduinoOTA.onStart([]() {
     String type;
@@ -247,7 +257,7 @@ bool common_loop(void) {
 
 #ifdef DEBUG_OUTPUT
   if ((millis() - hz_counter_delta) >= 1000) {
-    Serial.printf("Freq : %ld Hz\n", hz_counter);
+    Serial.printf("Loop Freq : %ld Hz\n", hz_counter);
     hz_counter_delta = millis();
     hz_counter = 0;
   }
@@ -264,11 +274,11 @@ static void beacon_send(void) {
   StaticJsonDocument<BUFFER_SIZE> json_doc;
   JsonObject json_data = json_doc.to<JsonObject>();
 
-  snprintf(desc, sizeof(desc), "%s|%s", WiFi.localIP().toString().c_str(), BUILD_DATE);
+  snprintf(desc, sizeof(desc), "%s|%s", WiFi.localIP().toString().c_str(), __DATE__);
 
   json_data["id"]       = mqtt_client_id;
   json_data["type"]     = 1;
-  json_data["device"]   = PIOENV;
+  json_data["device"]   = DEVICE_TYPE;
   json_data["desc"]     = desc;
   json_data["rssi"]     = WiFi.RSSI();
   json_data["uptime"]   = millis();
@@ -374,8 +384,10 @@ static bool wifi_connect(void) {
     delay(1000);
     Serial.print(".");
 
-    if (++connection_tries >= 10) {
-      Serial.println("Connection failed after 10 tries, calling WiFi.reconnect()");
+    if (++connection_tries >= 5) {
+      Serial.println(" - failed");
+      Serial.println("Connection failed after 5 tries, waiting 61 seconds and calling WiFi.reconnect()");
+      delay(61000); // delaying for 61 seconds thanks to &^%$# security policies of our wifi vendor
       WiFi.reconnect();
       return false;
     }

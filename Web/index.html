@@ -89,9 +89,13 @@
 			let network;
 			let mqttServerAddress = '10.42.10.86';
 
+			function uuidv4() {
+				return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+			}
+
 			// MQTT
-			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
-			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+			let mqttClientId	= 'nplab-webclient' + uuidv4();
+			let mqttClient		= new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
 
 			// VIS
 			let nodesDataset = new vis.DataSet({});
@@ -371,7 +375,7 @@
 
 			// Handle data message
 			function mqttHandleData(message) {
-				$("#iotModalPre").append(message.payloadString).append("\n");
+				$("#iotModalPre").prepend(message.payloadString).prepend("\n");
 			}
 
 			// General MQTT message handler

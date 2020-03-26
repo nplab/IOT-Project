@@ -27,21 +27,25 @@
 					</div>
 					<div class="card-body">
 							<div class="row">
-								<div class="col-sm-6 justify-content-center align-items-center" style="height: 500px;">
-									<div id="gauge_mv_c0" style="width: 100%; height: 100%;"></div>
+								<div class="col-sm-4 justify-content-center" style="height: 500px;">
+									<div id="bar_mv_c0" style="width: 100%; height: 100%;"></div>
 								</div>
-								<div class="col-sm-6 justify-content-center align-items-center">
-									<div id="gauge_mv_c1" style="width: 100%; height: 100%;"></div>
+								<div class="col-sm-4 justify-content-center align-items-center">
+									<div id="bar_mv_diff_01" style="width: 100%; height: 100%;"></div>
+								</div>
+								<div class="col-sm-4 justify-content-center">
+									<div id="bar_mv_c1" style="width: 100%; height: 100%;"></div>
 								</div>
 							</div>
 							<div class="row">
-								<div class="col-sm-6 justify-content-center">
-									<input type="text" id="c0_scale_min" name="fname" value="0">
-									<input type="text" id="c0_scale_max" name="fname" value="1000">
+								<div class="col-sm-3 justify-content-center">
+									<div class="voltage" id="value_c0"></div>
 								</div>
 								<div class="col-sm-6 justify-content-center align-items-center">
-									<input type="text" id="c1_scale_min" name="fname" value="0">
-									<input type="text" id="c1_scale_max" name="fname" value="1000">
+									<input type="text" id="scale_max" name="fname" value="1000">
+								</div>
+								<div class="col-sm-3 justify-content-center">
+									<div class="voltage" id="value_c1"></div>
 								</div>
 							</div>
 					</div>
@@ -78,16 +82,15 @@
 				]);
 
 				charts.c0.voltages.options = {
-					min: -1000,
-					max: 1000,
-					minorTicks: 5,
-					majorTicks: 2,
-					animation: {
-						duration: 10,
-				}
-
-				};
-				charts.c0.voltages.chart = new google.visualization.Gauge(document.getElementById('gauge_mv_c0'));
+					//width: 200,
+					//height: 400,
+					vAxis: {
+						title: 'Voltage (mV)',
+						minValue : 0,
+						maxValue : 15000
+					},
+					legend: { position: "none" }};
+				charts.c0.voltages.chart = new google.visualization.ColumnChart(document.getElementById('bar_mv_c0'));
 				charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
 
 				charts.c1 = {}
@@ -98,6 +101,26 @@
 				]);
 
 				charts.c1.voltages.options = {
+					//width: 200,
+					//height: 400,
+					vAxis: {
+						title: 'Voltage (mV)',
+						minValue : 0,
+						maxValue : 15000
+					},
+					legend: { position: "none" }};
+				charts.c1.voltages.chart = new google.visualization.ColumnChart(document.getElementById('bar_mv_c1'));
+				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
+
+
+				charts.c01 = {}
+				charts.c01.voltages = {}
+				charts.c01.voltages.data = google.visualization.arrayToDataTable([
+					['Label', 'Value'],
+					['', 0]
+				]);
+
+				charts.c01.voltages.options = {
 					min: -1000,
 					max: 1000,
 					minorTicks: 5,
@@ -105,8 +128,8 @@
 						duration: 10,
 					}
 				};
-				charts.c1.voltages.chart = new google.visualization.Gauge(document.getElementById('gauge_mv_c1'));
-				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
+				charts.c01.voltages.chart = new google.visualization.Gauge(document.getElementById('bar_mv_diff_01'));
+				charts.c01.voltages.chart.draw(charts.c01.voltages.data, charts.c01.voltages.options);
 
 				// MQTT - set callback handlers and connect
 				mqttClient.onConnectionLost = mqttOnConnectionLost;
@@ -179,21 +202,19 @@
 				//console.log("Handling SHT31");
 				charts.c0.voltages.data.setValue(0, 1, data.mv_c0.toFixed(1));
 				charts.c1.voltages.data.setValue(0, 1, data.mv_c1.toFixed(1));
+				charts.c01.voltages.data.setValue(0, 1, (data.mv_c0 - data.mv_c1).toFixed(1));
 				//charts.all.voltages.data.setValue(1, 1, data.mv_c1.toFixed(1));
 				//charts.all.voltages.data.setValue(2, 1, data.mv_c2.toFixed(1));
 				//charts.all.voltages.data.setValue(3, 1, data.mv_c3.toFixed(1));
 				charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
 				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
+				charts.c01.voltages.chart.draw(charts.c01.voltages.data, charts.c01.voltages.options);
 
-				charts.c0.voltages.options.min = $("#c0_scale_min").val();
-				charts.c1.voltages.options.min = $("#c1_scale_min").val();
+				charts.c01.voltages.options.min = -($("#scale_max").val());
+				charts.c01.voltages.options.max = $("#scale_max").val();
 
-				charts.c0.voltages.options.max = $("#c0_scale_max").val();
-				charts.c1.voltages.options.max = $("#c1_scale_max").val();
-
-
-				$("#value_c0").val(Math.round(data.mv_c0));
-				$("#value_c1").val(Math.round(data.mv_c1));
+				$("#value_c0").text(Math.round(data.mv_c0));
+				$("#value_c1").text(Math.round(data.mv_c1));
 
 			}
 

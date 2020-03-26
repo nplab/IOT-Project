@@ -1,52 +1,48 @@
-#define CONFIG_DEBUG_OUTPUT
-
-#define CONFIG_WIFI_NAME  "WIFI-NETWORK"
-#define CONFIG_WIFI_PSK   "WIFI-PASSWORD"
-
-#define CONFIG_MQTT_OUTPUT
+///////////////////////// COMMON HEADER BEGIN
+#define CONFIG_WIFI_NAME "WIFI_NETWORK"
+#define CONFIG_WIFI_PSK "WIFI_PSK"
 #define CONFIG_MQTT_BROKER_ADDRESS "10.42.10.86"
 
-#define CONFIG_OTA_ENABLED
-#define CONFIG_OTA_PASSWORD "bruttonetto"
+#define DEBUG_OUTPUT
+#define MQTT_OUTPUT
 
-#define CONFIG_BEACON_INTERVAL 5000
-#define CONFIG_SENSOR_INTERVAL 10
+#define OTA_ENABLED
+//#define OTA_PASSWORD "bruttonetto"
 
-#define CONFIG_HMAC_ENABLED
-#define CONFIG_HMAC_KEY "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f"
+//#define HMAC_ENABLED
+#define HMAC_KEY "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f"
 
-#define MQTT_MAX_PACKET_SIZE 512
+#define BEACON_INTERVAL 5000
 
-///////////////////////// COMMON HEADER BEGIN
-#ifdef CONFIG_MQTT_OUTPUT
-#include <PubSubClient.h>
+//#define MQTT_MAX_PACKET_SIZE 512 << BE AWARE OF THIS!!
+
+#ifndef DEVICE_TYPE
+#define DEVICE_TYPE "GENERIC-ESP"
 #endif
+
+#include <PubSubClient.h>
 #include <ArduinoJson.h>
 
-#ifdef CONFIG_OTA_ENABLED
+#ifdef OTA_ENABLED
 #include <ArduinoOTA.h>
-#endif // CONFIG_OTA_ENABLED
+#endif // OTA_ENABLED
 
-#ifdef CONFIG_HMAC_ENABLED
+#ifdef HMAC_ENABLED
 #include <base64.h>
 #include "mbedtls/md.h"
 mbedtls_md_context_t md_context;
 mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
-const char *md_key = CONFIG_HMAC_KEY;
-#endif // CONFIG_HMAC_ENABLED
+const char *md_key = HMAC_KEY;
+#endif // HMAC_ENABLED
 
-#ifdef TARGET_ESP8266
-#include <ESP8266WiFi.h>
-#else // TARGET_ESP8266
+#ifdef ESP32
 #include <WiFi.h>
-#endif // TARGET_ESP8266
+#else // ESP32
+#include <ESP8266WiFi.h>
+#endif // ESP32
 
 // Buffer size used at various places
 #define BUFFER_SIZE 512
-
-#ifndef CONFIG_DEVICE_TYPE
-#define CONFIG_DEVICE_TYPE "GENERIC ESP"
-#endif // CONFIG_DEVICE_TYPE
 
 String mqtt_client_id;
 String mqtt_sensor_topic;
@@ -65,6 +61,8 @@ static bool wifi_connect(void);
 static bool json_send(const char *mqtt_topic, JsonObject json_data);
 static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
 ///////////////////////// COMMON HEADER END
+
+#define SENSOR_INTERVAL 100
 
 #include <SPI.h>
 #include <Wire.h>
@@ -89,8 +87,8 @@ void loop(void) {
     return;
   }
 
-  // Send sensor values every CONFIG_SENSOR_INTERVAL
-  if (last_value_sent == 0 || CONFIG_SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= CONFIG_SENSOR_INTERVAL) {
+  // Send sensor values every SENSOR_INTERVAL
+  if (last_value_sent == 0 || SENSOR_INTERVAL == 0 || (millis() - last_value_sent) >= SENSOR_INTERVAL) {
     last_value_sent = millis();
     ads1115_send();
   }
@@ -126,9 +124,7 @@ static bool common_setup(void) {
 
   // WIFI
   Serial.printf("Connecting to WIFI network: %s\n", CONFIG_WIFI_NAME);
-  WiFi.mode(WIFI_STA);
   WiFi.begin(CONFIG_WIFI_NAME, CONFIG_WIFI_PSK);
-  wifi_connect();
 
   // MQTT setup
   mqtt_client.setServer(CONFIG_MQTT_BROKER_ADDRESS, 1883);
@@ -143,8 +139,12 @@ static bool common_setup(void) {
   json_data["type"]     = 2;
   serializeJson(json_data, mqtt_last_will_buffer, BUFFER_SIZE);
 
-#ifdef CONFIG_OTA_ENABLED
-  ArduinoOTA.setPassword(CONFIG_OTA_PASSWORD);
+#ifdef OTA_ENABLED
+#ifdef OTA_PASSWORD
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+#else // OTA_PASSWORD
+  ArduinoOTA.setPassword(mqtt_client_id.c_str());
+#endif // OTA_PASSWORD
 #ifdef ESP32
   ArduinoOTA.setMdnsEnabled(false);
 #endif // ESP32
@@ -194,12 +194,12 @@ static bool common_setup(void) {
     });
 
   ArduinoOTA.begin();
-#endif // CONFIG_OTA_ENABLED
+#endif // OTA_ENABLED
 
-#ifdef CONFIG_HMAC_ENABLED
+#ifdef HMAC_ENABLED
   mbedtls_md_init(&md_context);
   mbedtls_md_setup(&md_context, mbedtls_md_info_from_type(md_type), 1);
-#endif // CONFIG_HMAC_ENABLED
+#endif // HMAC_ENABLED
 
   Serial.println(F("Initialized"));
   return true;
@@ -208,10 +208,10 @@ static bool common_setup(void) {
 bool common_loop(void) {
   static long last_beacon_sent;
   static long last_led_toggle;
-#ifdef CONFIG_DEBUG_OUTPUT
+#ifdef DEBUG_OUTPUT
   static long hz_counter;
   static long hz_counter_delta;
-#endif // CONFIG_DEBUG_OUTPUT
+#endif // DEBUG_OUTPUT
 
   // Toggle status LED as activity indicator
   if (last_led_toggle == 0 || (millis() - last_led_toggle) >= 500) {
@@ -225,28 +225,28 @@ bool common_loop(void) {
     return false;
   }
 
-#ifdef CONFIG_OTA_ENABLED
+#ifdef OTA_ENABLED
   ArduinoOTA.handle();
-#endif // CONFIG_OTA_ENABLED
+#endif // OTA_ENABLED
 
-#ifdef CONFIG_MQTT_OUTPUT
+#ifdef MQTT_OUTPUT
   // Maintain MQTT connection
   if (!mqtt_connect()) {
     delay(5000);
     return false;
   }
   mqtt_client.loop();
-#endif // CONFIG_MQTT_OUTPUT
+#endif // MQTT_OUTPUT
 
-  // Send a beacon every CONFIG_BEACON_INTERVAL
-  if (last_beacon_sent == 0 || CONFIG_BEACON_INTERVAL == 0 || (millis() - last_beacon_sent) >= CONFIG_BEACON_INTERVAL) {
+  // Send a beacon every BEACON_INTERVAL
+  if (last_beacon_sent == 0 || BEACON_INTERVAL == 0 || (millis() - last_beacon_sent) >= BEACON_INTERVAL) {
     beacon_send();
     last_beacon_sent = millis();
   }
 
-#ifdef CONFIG_DEBUG_OUTPUT
+#ifdef DEBUG_OUTPUT
   if ((millis() - hz_counter_delta) >= 1000) {
-    Serial.printf("Freq : %ld Hz\n", hz_counter);
+    Serial.printf("Loop Freq : %ld Hz\n", hz_counter);
     hz_counter_delta = millis();
     hz_counter = 0;
   }
@@ -267,7 +267,7 @@ static void beacon_send(void) {
 
   json_data["id"]       = mqtt_client_id;
   json_data["type"]     = 1;
-  json_data["device"]   = CONFIG_DEVICE_TYPE;
+  json_data["device"]   = DEVICE_TYPE;
   json_data["desc"]     = desc;
   json_data["rssi"]     = WiFi.RSSI();
   json_data["uptime"]   = millis();
@@ -286,19 +286,19 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
 
   bufferlen = json_serialize(json_data, buffer, BUFFER_SIZE);
 
-#ifdef CONFIG_DEBUG_OUTPUT
+#ifdef DEBUG_OUTPUT
   Serial.print("MSG OUT [");
   Serial.print(mqtt_topic);
   Serial.print("] ");
   Serial.println(buffer);
-#endif // CONFIG_DEBUG_OUTPUT
+#endif // DEBUG_OUTPUT
 
-#ifdef CONFIG_MQTT_OUTPUT
+#ifdef MQTT_OUTPUT
   if (!mqtt_client.publish(mqtt_topic, (const uint8_t *) buffer, bufferlen)) {
     Serial.println("publish failed!");
     return false;
   }
-#endif // CONFIG_MQTT_OUTPUT
+#endif // MQTT_OUTPUT
 
   return true;
 }
@@ -306,7 +306,7 @@ static bool json_send(const char *mqtt_topic, JsonObject json_data) {
 static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size) {
   int buffer_filled = 0;
 
-#ifdef CONFIG_HMAC_ENABLED
+#ifdef HMAC_ENABLED
   byte hmac_hash[32];
 
   json_data["hmac"] = "";
@@ -325,8 +325,8 @@ static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size
 
   }
   Serial.println("");
-#endif // CONFIG_DEBUG_OUTPUT
-#endif // CONFIG_HMAC_ENABLED
+#endif // DEBUG_OUTPUT
+#endif // HMAC_ENABLED
 
   buffer_filled = serializeJson(json_data, buffer, buffer_size);
 
@@ -373,8 +373,10 @@ static bool wifi_connect(void) {
     delay(1000);
     Serial.print(".");
 
-    if (++connection_tries >= 10) {
-      Serial.println("Connection failed after 10 tries, calling WiFi.reconnect()");
+    if (++connection_tries >= 5) {
+      Serial.println(" - failed");
+      Serial.println("Connection failed after 5 tries, waiting 61 seconds and calling WiFi.reconnect()");
+      delay(61000); // delaying for 61 seconds thanks to &^%$# security policies of our wifi vendor
       WiFi.reconnect();
       return false;
     }
