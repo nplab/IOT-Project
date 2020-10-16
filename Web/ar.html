@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	
+	<title>IOT Dashboard</title>
+
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+	<link href="css/all.min.css" rel="stylesheet">
+	<style>
+		body {background-color: black; color: white;}
+	</style>
+
+	<script src="js/jquery-3.3.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script src="js/mqttws31.min.js"></script>
+</head>
+
+<body>
+	<main>
+		<div class="data_output float-right" style="padding: 50px; font-size: 28pt">
+			Waiting for connection
+		</div>
+		<button style="background-color: #555555;" onclick="openFullscreen();">Full</button>
+	</main>
+
+
+	<script>
+		"use strict";
+		$(document).ready(function(){
+			let network;
+			let mqttServerAddress = '10.42.10.86';
+
+			// MQTT
+			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
+			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+
+			// MQTT Client - connected
+			function mqttOnConnect() {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log("mqttOnConnect");
+
+				mqttClient.subscribe("sensor/80:7D:3A:B7:4F:18");
+			}
+
+			// MQTT Client - connect failed
+			function mqttOnConnectFailure(responseObject) {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
+			}
+
+			// MQTT Client - connection lost
+			function mqttOnConnectionLost(responseObject) {
+				if (responseObject.errorCode !== 0) {
+					console.log("onConnectionLost:" + responseObject.errorMessage);
+				}
+			}
+
+			// Handle data message
+			function mqttHandleData(message) {
+				var data = JSON.parse(message.payloadString);
+
+				$(".data_output").text("");
+
+				jQuery.each(data, function(i, val) {
+					console.log(val + " " + i);
+					$(".data_output").append(i + " - " + val + " <br>");
+				});
+			}
+
+			// General MQTT message handler
+			function mqttOnMessageArrived(message) {
+				console.log(message.payloadString);
+				if (message.destinationName.startsWith("beacon")) {
+					//console.log(message);
+				} else if (message.destinationName.startsWith("sensor")) {
+					mqttHandleData(message);
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			}
+
+			// MQTT - set callback handlers and connect
+			mqttClient.onConnectionLost = mqttOnConnectionLost;
+			mqttClient.onMessageArrived = mqttOnMessageArrived;
+			mqttClient.connect({
+				onSuccess : mqttOnConnect,
+				onFailure : mqttOnConnectFailure,
+				timeout : 5
+			});
+
+			
+		});
+
+		var elem = document.documentElement;
+		
+		function openFullscreen() {
+			if (elem.requestFullscreen) {
+				elem.requestFullscreen();
+			} else if (elem.mozRequestFullScreen) { /* Firefox */
+				elem.mozRequestFullScreen();
+			} else if (elem.webkitRequestFullscreen) { /* Chrome, Safari & Opera */
+				elem.webkitRequestFullscreen();
+			} else if (elem.msRequestFullscreen) { /* IE/Edge */
+				elem.msRequestFullscreen();
+			}
+		}
+	</script>
+</body>
+</html>
