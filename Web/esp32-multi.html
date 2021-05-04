@@ -54,12 +54,80 @@
 	<script>
 		"use strict";
 		$(document).ready(function(){
-			let network;
 			let mqttServerAddress = '10.42.10.86';
 
 			// MQTT
 			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
 			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+
+			let mqttServerAddress   = 'wss://iot.fh-muenster.de/mqtt';
+			let mqttClientId        = 'nplab-webclient' + uuidv4();
+			let mqttClient;
+			let mqttClientOptions;
+
+			mqttClientOptions = {
+				keepalive: 30,
+				clientId: mqttClientId,
+				protocolId: 'MQTT',
+				protocolVersion: 4,
+				clean: true,
+				reconnectPeriod: 1000,
+				connectTimeout: 30 * 1000,
+				will: {
+					topic: 'WillMsg',
+					payload: 'Connection Closed abnormally..!',
+					qos: 0,
+					retain: false
+				},
+				rejectUnauthorized: false
+			}
+
+			console.log('connecting mqtt client');
+			mqttClient = mqtt.connect(mqttServerAddress, mqttClientOptions);
+
+			mqttClient.on('error', function (err) {
+				console.log(err);
+				mqttClient.end();
+
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('error - ' + err + ' - ' + err);
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection failed : ' + err);
+			})
+
+			mqttClient.on('connect', function () {
+				console.log('client connected:' + mqttClientId)
+
+				$('#iotData').attr('class', 'card-body');
+
+				mqttClient.subscribe("sensor/3C:71:BF:AA:8F:C4");
+				mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
+			})
+
+			mqttClient.on('message', function (topic, message, packet) {
+				console.log(message.toString());
+				if (topic.startsWith("beacon")) {
+					mqttHandleBeacon(message.toString());
+				} else if (topic.startsWith("sensor")) {
+					mqttHandleData(message.toString());
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			})
+
+			mqttClient.on('close', function () {
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection closed');
+			})
 
 			let gauges = {};
 
@@ -124,44 +192,6 @@
 			}
 
 			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
-
-			// MQTT Client - connected
-			function mqttOnConnect() {
-				// Once a connection has been made, make a subscription and send a message.
-				console.log("mqttOnConnect");
-
-				$('#iotData').attr('class', 'card-body');
-
-				mqttClient.subscribe("sensor/3C:71:BF:AA:8F:C4");
-				mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
-			}
-
-			// MQTT Client - connect failed
-			function mqttOnConnectFailure(responseObject) {
-				// Once a connection has been made, make a subscription and send a message.
-				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
-
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
-			}
-
-			// MQTT Client - connection lost
-			function mqttOnConnectionLost(responseObject) {
-				if (responseObject.errorCode !== 0) {
-					console.log("onConnectionLost:" + responseObject.errorMessage);
-				}
-
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
-			}
 
 			// Handle data message
 			function mqttHandleData(message) {

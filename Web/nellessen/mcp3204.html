@@ -6,24 +6,24 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 	<title>IOT Dashboard</title>
 
-	<link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/iot.css" rel="stylesheet">
+	<link href="../css/bootstrap.min.css" rel="stylesheet">
+	<link href="../css/all.min.css" rel="stylesheet">
+	<link href="../css/iot.css" rel="stylesheet">
 
-	<script src="js/jquery-3.3.1.min.js"></script>
-	<script src="js/bootstrap.min.js"></script>
-	<script src="js/mqttws31.min.js"></script>
+	<script src="../js/jquery-3.3.1.min.js"></script>
+	<script src="../js/bootstrap.min.js"></script>
+	<script src="../js/mqttws31.min.js"></script>
 	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 </head>
 
 <body>
 	<main>
 		<div class="container">
-			<img src="dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<img src="../dist/logo.svg" class="img-fluid my-3" alt="logo">
 			<div class="card-deck mb-3 text-center">
 				<div class="card mb-4 box-shadow">
 					<div class="card-header">
-						<h3 class="font-weight-normal my-0">MC3204</h3>
+						<h3 class="font-weight-normal my-0">MC3204 - <span class="sensor-id"></span></h3>
 					</div>
 					<div class="card-body">
 							<div class="row">
@@ -36,12 +36,14 @@
 							</div>
 							<div class="row">
 								<div class="col-sm-6 justify-content-center">
-									<input type="text" id="c0_scale_min" name="fname" value="0">
-									<input type="text" id="c0_scale_max" name="fname" value="1000">
+									<h2>Channel 0</h2>
+									<input type="text" id="c0_scale_min" name="fname" class="gauge_scale" value="-12">
+									<input type="text" id="c0_scale_max" name="fname" class="gauge_scale" value="12">
 								</div>
 								<div class="col-sm-6 justify-content-center align-items-center">
-									<input type="text" id="c1_scale_min" name="fname" value="0">
-									<input type="text" id="c1_scale_max" name="fname" value="1000">
+									<h2>Channel 1</h2>
+									<input type="text" id="c1_scale_min" name="fname" class="gauge_scale" value="-12">
+									<input type="text" id="c1_scale_max" name="fname" class="gauge_scale" value="12">
 								</div>
 							</div>
 					</div>
@@ -56,17 +58,21 @@
 
 	<script>
 		"use strict";
+
+		let config = {};
+		config['sensorId'] = "3C:71:BF:AA:7B:18";
+		config['mqttServerAddress'] = '10.42.10.86';
+
 		$(document).ready(function(){
 			let network;
-			let mqttServerAddress = '10.42.10.86';
 
 			// MQTT
 			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
-			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+			let mqttClient = new Paho.MQTT.Client(config['mqttServerAddress'], 8083, mqttClientId);
 
 			let charts = {};
 
-			google.charts.load('current', {packages: ['corechart', 'bar', 'gauge']});
+			google.charts.load('current', {packages: ['corechart', 'bar', 'gauge'], 'language': 'de'});
 			google.charts.setOnLoadCallback(initializeCharts);
 
 			function initializeCharts() {
@@ -74,14 +80,13 @@
 				charts.c0.voltages = {}
 				charts.c0.voltages.data = google.visualization.arrayToDataTable([
 					['Label', 'Value'],
-					['Channel 0', 0]
+					['', 0]
 				]);
 
 				charts.c0.voltages.options = {
-					min: -1000,
-					max: 1000,
+					min: -14,
+					max: 14,
 					minorTicks: 5,
-					majorTicks: 2,
 					animation: {
 						duration: 10,
 				}
@@ -94,12 +99,12 @@
 				charts.c1.voltages = {}
 				charts.c1.voltages.data = google.visualization.arrayToDataTable([
 					['Label', 'Value'],
-					['Channel 1', 0]
+					['', 0]
 				]);
 
 				charts.c1.voltages.options = {
-					min: -1000,
-					max: 1000,
+					min: -14,
+					max: 14,
 					minorTicks: 5,
 					animation: {
 						duration: 10,
@@ -116,6 +121,8 @@
 					onFailure : mqttOnConnectFailure,
 					timeout : 5
 				});
+
+				applyGaugeSetting();
 			}
 
 			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
@@ -124,10 +131,9 @@
 			function mqttOnConnect() {
 				// Once a connection has been made, make a subscription and send a message.
 				console.log("mqttOnConnect");
-
 				$('#iotData').attr('class', 'card-body');
-
-				mqttClient.subscribe("sensor/A4:CF:12:78:4F:F0");
+				$('.sensor-id').text(config['sensorId']);
+				mqttClient.subscribe("sensor/" + config['sensorId']);
 				//mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
 			}
 
@@ -158,6 +164,35 @@
 				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
 			}
 
+			$( ".gauge_scale" ).change(function() {
+				applyGaugeSetting();
+			});
+
+			function applyGaugeSetting() {
+				var majorTicks0 = []
+				var i;
+
+				charts.c0.voltages.options.min = $("#c0_scale_min").val();
+				charts.c0.voltages.options.max = $("#c0_scale_max").val();
+				for (i = 0; i <= 4; i++) {
+					let tick = Math.round((parseFloat(charts.c0.voltages.options.min) + (parseFloat(charts.c0.voltages.options.max) - parseFloat(charts.c0.voltages.options.min)) / 4 * i) * 100) / 100;
+					majorTicks0[i] = tick.toString();
+				}
+				charts.c0.voltages.options.majorTicks = majorTicks0;
+			
+				console.log(majorTicks0);
+
+				var majorTicks1 = []
+				charts.c1.voltages.options.min = $("#c1_scale_min").val();
+				charts.c1.voltages.options.max = $("#c1_scale_max").val();
+				for (i = 0; i <= 4; i++) {
+					let tick = Math.round((parseFloat(charts.c1.voltages.options.min) + (parseFloat(charts.c1.voltages.options.max) - parseFloat(charts.c1.voltages.options.min)) / 4 * i) * 100) / 100;
+					majorTicks1[i] = tick.toString();
+				}
+				charts.c1.voltages.options.majorTicks = majorTicks1;
+				
+			}
+
 			// Handle data message
 			function mqttHandleData(message) {
 				$("#iotModalPre").append(message.payloadString).append("\n");
@@ -177,29 +212,16 @@
 
 			function handleMcp3204(data) {
 				//console.log("Handling SHT31");
-				charts.c0.voltages.data.setValue(0, 1, data.mv_c0.toFixed(1));
-				charts.c1.voltages.data.setValue(0, 1, data.mv_c1.toFixed(1));
-				//charts.all.voltages.data.setValue(1, 1, data.mv_c1.toFixed(1));
-				//charts.all.voltages.data.setValue(2, 1, data.mv_c2.toFixed(1));
-				//charts.all.voltages.data.setValue(3, 1, data.mv_c3.toFixed(1));
+				charts.c0.voltages.data.setValue(0, 1, ((data.mv_c0) / 1000 ).toFixed(2));
+				charts.c1.voltages.data.setValue(0, 1, ((data.mv_c1) / 1000 ).toFixed(2));
+
 				charts.c0.voltages.chart.draw(charts.c0.voltages.data, charts.c0.voltages.options);
 				charts.c1.voltages.chart.draw(charts.c1.voltages.data, charts.c1.voltages.options);
-
-				charts.c0.voltages.options.min = $("#c0_scale_min").val();
-				charts.c1.voltages.options.min = $("#c1_scale_min").val();
-
-				charts.c0.voltages.options.max = $("#c0_scale_max").val();
-				charts.c1.voltages.options.max = $("#c1_scale_max").val();
-
-
-				$("#value_c0").val(Math.round(data.mv_c0));
-				$("#value_c1").val(Math.round(data.mv_c1));
-
 			}
 
 			// General MQTT message handler
 			function mqttOnMessageArrived(message) {
-				console.log(message.payloadString);
+				//console.log(message.payloadString);
 				if (message.destinationName.startsWith("beacon")) {
 					//console.log(message);
 				} else if (message.destinationName.startsWith("sensor")) {

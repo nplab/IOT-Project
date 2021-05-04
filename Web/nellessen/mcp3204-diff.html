@@ -6,24 +6,24 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 	<title>IOT Dashboard</title>
 
-	<link href="css/bootstrap.min.css" rel="stylesheet">
-	<link href="css/all.min.css" rel="stylesheet">
-	<link href="css/iot.css" rel="stylesheet">
+	<link href="../css/bootstrap.min.css" rel="stylesheet">
+	<link href="../css/all.min.css" rel="stylesheet">
+	<link href="../css/iot.css" rel="stylesheet">
 
-	<script src="js/jquery-3.3.1.min.js"></script>
-	<script src="js/bootstrap.min.js"></script>
-	<script src="js/mqttws31.min.js"></script>
+	<script src="../js/jquery-3.3.1.min.js"></script>
+	<script src="../js/bootstrap.min.js"></script>
+	<script src="../js/mqttws31.min.js"></script>
 	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 </head>
 
 <body>
 	<main>
 		<div class="container">
-			<img src="dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<img src="../dist/logo.svg" class="img-fluid my-3" alt="logo">
 			<div class="card-deck mb-3 text-center">
 				<div class="card mb-4 box-shadow">
 					<div class="card-header">
-						<h3 class="font-weight-normal my-0">MC3204</h3>
+						<h3 class="font-weight-normal my-0">MC3204 - <span class="sensor-id"></span></h3>
 					</div>
 					<div class="card-body">
 							<div class="row">
@@ -42,7 +42,20 @@
 									<div class="voltage" id="value_c0"></div>
 								</div>
 								<div class="col-sm-6 justify-content-center align-items-center">
-									<input type="text" id="scale_max" name="fname" value="1000">
+
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" style="width: 100px;" id="inputGroup-sizing-sm">C0/C1 max</span>
+										</div>
+										<input type="number" id="chartYMin" class="form-control chartLimits" value="6">
+									</div>
+
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" style="width: 100px;" id="inputGroup-sizing-sm">diff min/max</span>
+										</div>
+										<input type="number" id="scale_max" class="form-control chartLimits" value="6">
+									</div>
 								</div>
 								<div class="col-sm-3 justify-content-center">
 									<div class="voltage" id="value_c1"></div>
@@ -62,11 +75,13 @@
 		"use strict";
 		$(document).ready(function(){
 			let network;
-			let mqttServerAddress = '10.42.10.86';
+			let config = {};
+			config['sensorId'] = "3C:71:BF:AA:7B:18";
+			config['mqttServerAddress'] = '10.42.10.86';
 
 			// MQTT
 			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
-			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
+			let mqttClient = new Paho.MQTT.Client(config['mqttServerAddress'], 8083, mqttClientId);
 
 			let charts = {};
 
@@ -85,7 +100,7 @@
 					//width: 200,
 					//height: 400,
 					vAxis: {
-						title: 'Voltage (mV)',
+						title: 'Voltage (V)',
 						minValue : 0,
 						maxValue : 15000
 					},
@@ -104,7 +119,7 @@
 					//width: 200,
 					//height: 400,
 					vAxis: {
-						title: 'Voltage (mV)',
+						title: 'Voltage (V)',
 						minValue : 0,
 						maxValue : 15000
 					},
@@ -149,8 +164,8 @@
 				console.log("mqttOnConnect");
 
 				$('#iotData').attr('class', 'card-body');
-
-				mqttClient.subscribe("sensor/A4:CF:12:78:4F:F0");
+				$('.sensor-id').text(config['sensorId']);
+				mqttClient.subscribe('sensor/' + config['sensorId']);
 				//mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
 			}
 
@@ -200,9 +215,10 @@
 
 			function handleMcp3204(data) {
 				//console.log("Handling SHT31");
-				charts.c0.voltages.data.setValue(0, 1, data.mv_c0.toFixed(1));
-				charts.c1.voltages.data.setValue(0, 1, data.mv_c1.toFixed(1));
-				charts.c01.voltages.data.setValue(0, 1, (data.mv_c0 - data.mv_c1).toFixed(1));
+				
+				charts.c0.voltages.data.setValue(0, 1, ((data.mv_c0) / 1000 ).toFixed(2));
+				charts.c1.voltages.data.setValue(0, 1, ((data.mv_c1) / 1000 ).toFixed(2));
+				charts.c01.voltages.data.setValue(0, 1, ((data.mv_c0 - data.mv_c1) / 1000 ).toFixed(2));
 				//charts.all.voltages.data.setValue(1, 1, data.mv_c1.toFixed(1));
 				//charts.all.voltages.data.setValue(2, 1, data.mv_c2.toFixed(1));
 				//charts.all.voltages.data.setValue(3, 1, data.mv_c3.toFixed(1));
@@ -213,8 +229,20 @@
 				charts.c01.voltages.options.min = -($("#scale_max").val());
 				charts.c01.voltages.options.max = $("#scale_max").val();
 
-				$("#value_c0").text(Math.round(data.mv_c0));
-				$("#value_c1").text(Math.round(data.mv_c1));
+				charts.c0.voltages.options.vAxis.maxValue = $("#chartYMin").val();
+				charts.c1.voltages.options.vAxis.maxValue = $("#chartYMin").val();
+
+				var majorTicks = []
+				var i;
+				for (i = 0; i <= 4; i++) {
+					let tick = Math.round((parseFloat(charts.c01.voltages.options.min) + (parseFloat(charts.c01.voltages.options.max) - parseFloat(charts.c01.voltages.options.min)) / 4 * i) * 100) / 100;
+					majorTicks[i] = tick.toString();
+				}
+				charts.c01.voltages.options.majorTicks = majorTicks;
+				
+
+				$("#value_c0").text(((data.mv_c0) / 1000 ).toFixed(2) + ' V');
+				$("#value_c1").text(((data.mv_c1) / 1000 ).toFixed(2) + ' V');
 
 			}
 

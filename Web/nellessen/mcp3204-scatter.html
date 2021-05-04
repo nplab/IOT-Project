@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>IOT Dashboard</title>
+
+	<link href="../css/bootstrap.min.css" rel="stylesheet">
+	<link href="../css/all.min.css" rel="stylesheet">
+	<link href="../css/iot.css" rel="stylesheet">
+
+	<script src="../js/jquery-3.3.1.min.js"></script>
+	<script src="../js/bootstrap.min.js"></script>
+	<script src="../js/mqttws31.min.js"></script>
+	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+
+<body>
+	<main>
+		<div class="container">
+			<img src="../dist/logo.svg" class="img-fluid my-3" alt="logo">
+			<div class="card-deck mb-3 text-center">
+				<div class="card mb-4 box-shadow">
+					<div class="card-header">
+						<h3 class="font-weight-normal my-0">MC3204 - <span class="sensor-id"></span></h3>
+					</div>
+					<div class="card-body">
+							<div class="row">
+								<div class="col-sm-12 justify-content-center align-items-center" style="height: 500px;">
+									<div id="scatter_mv" style="width: 100%; height: 100%;"></div>
+								</div>
+							</div>
+
+							<div class="row">
+								<div class="col-sm-3 justify-content-center">
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" id="inputGroup-sizing-sm">x-min</span>
+										</div>
+										<input type="number" id="chartXMin" class="form-control chartLimits" value="3000">
+									</div>
+								</div>
+								<div class="col-sm-3 justify-content-center">
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" id="inputGroup-sizing-sm">x-max</span>
+										</div>
+										<input type="number" id="chartXMax" class="form-control chartLimits" value="3000">
+									</div>
+								</div>
+								<div class="col-sm-3 justify-content-center">
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" id="inputGroup-sizing-sm">y-min</span>
+										</div>
+										<input type="number" id="chartYMin" class="form-control chartLimits" value="3000">
+									</div>
+								</div>
+								<div class="col-sm-3 justify-content-center">
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" id="inputGroup-sizing-sm">y-max</span>
+										</div>
+										<input type="number" id="chartYMax" class="form-control chartLimits" value="3000">
+									</div>
+								</div>
+							</div>
+
+							<div class="row">
+								<div class="col-sm-6 p-x-2">
+									<div class="input-group input-group-sm mb-3">
+										<div class="input-group-prepend">
+											<span class="input-group-text" id="inputGroup-sizing-sm">Offset</span>
+										</div>
+										<input class="form-control" type="number" id="offset" value="0">
+										<div class="input-group-append">
+											<button type="button" class="btn btn-outline-secondary btnSetOffset" id="btnSetOffsetC0">from C0</button>
+											<button type="button" class="btn btn-outline-secondary btnSetOffset" id="btnSetOffsetC1">from C1</button>
+										</div>
+									</div>
+								</div>
+								<div class="col-sm-6 p-x-2">
+									<button type="button" class="btn btn-success btn-sm btn-block" id="btnToggleRecording">Start Recording</button>
+								</div>
+							</div>
+					</div>
+					<div class="card-footer text-muted">
+						<a href="mailto:weinrank@fh-muenster.de">Felix Weinrank</a> - <a href="https://github.com/nplab">Network Programming Laboratory of Münster University of Applied Sciences</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</main>
+
+
+	<script>
+		"use strict";
+
+		let config = {};
+		config['sensorId'] = "3C:71:BF:AA:7B:18";
+		config['mqttServerAddress'] = '10.42.10.86';
+
+		let network;
+		let mqttClientId;
+		let mqttClient;
+		let chart = {};
+		let chartRecording = false;
+		let lastMeasurement = {};
+
+		$(document).ready(function(){
+			
+			// MQTT
+			mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
+			mqttClient = new Paho.MQTT.Client(config['mqttServerAddress'], 8083, mqttClientId);
+
+			google.charts.load('current', {packages: ['corechart']});
+			google.charts.setOnLoadCallback(initializeCharts);
+
+			function initializeCharts() {
+
+				chart.data = google.visualization.arrayToDataTable([
+					['Chan 0', 'Chan 1'],
+					[0, 0]
+				]);
+
+				console.log(chart.data)
+
+				chart.options = {
+					title: 'Voltage Scatter Chart',
+					hAxis: {
+						title: 'Channel 0 (mv)', 
+						minValue: 0, 
+						maxValue: 3000
+					},
+					vAxis: {
+						title: 'Channel 1 (mv)',
+						minValue: 0,
+						maxValue: 3000
+					},
+					legend: 'none'
+				};
+
+				chart.chart_obj = new google.visualization.ScatterChart(document.getElementById('scatter_mv'));
+
+				chart.chart_obj.draw(chart.data, chart.options);
+
+				// MQTT - set callback handlers and connect
+				mqttClient.onConnectionLost = mqttOnConnectionLost;
+				mqttClient.onMessageArrived = mqttOnMessageArrived;
+				mqttClient.connect({
+					onSuccess : mqttOnConnect,
+					onFailure : mqttOnConnectFailure,
+					timeout : 5
+				});
+			}
+
+			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
+
+			// MQTT Client - connected
+			function mqttOnConnect() {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log("mqttOnConnect");
+
+				$('#iotData').attr('class', 'card-body');
+
+				$('.sensor-id').text(config['sensorId']);
+				mqttClient.subscribe("sensor/" + config['sensorId']);
+			}
+
+			// MQTT Client - connect failed
+			function mqttOnConnectFailure(responseObject) {
+				// Once a connection has been made, make a subscription and send a message.
+				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
+			}
+
+			// MQTT Client - connection lost
+			function mqttOnConnectionLost(responseObject) {
+				if (responseObject.errorCode !== 0) {
+					console.log("onConnectionLost:" + responseObject.errorMessage);
+				}
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
+			}
+
+			// Handle data message
+			function mqttHandleData(message) {
+				$("#iotModalPre").append(message.payloadString).append("\n");
+				var data = JSON.parse(message.payloadString);
+
+				if (!data.hasOwnProperty("sensor")) {
+					console.log("Missing 'sensor' property, ignoring.");
+					return;
+				}
+
+				switch (data.sensor) {
+					case "mcp3204":
+						handleMcp3204(data);
+						break;
+				}
+			}
+
+			function handleMcp3204(data) {
+
+				if (!chartRecording) {
+					return;
+				}
+
+				lastMeasurement[0] = data.mv_c0;
+				lastMeasurement[1] = data.mv_c1;
+
+				chart.data.addRow([Math.round(data.mv_c0 - $('#offset').val()), Math.round(data.mv_c1 - $('#offset').val())]);
+				chart.chart_obj.draw(chart.data, chart.options);
+
+				/*if (chart.data.getNumberOfRows() > 5000) {
+					chart.data.removeRow(0)
+				}
+				*/
+
+				$('#btnToggleRecording').text('Recording (' + chart.data.getNumberOfRows() + ')');
+			}
+
+			// General MQTT message handler
+			function mqttOnMessageArrived(message) {
+				//console.log(message.payloadString);
+				if (message.destinationName.startsWith("beacon")) {
+					//console.log(message);
+				} else if (message.destinationName.startsWith("sensor")) {
+					mqttHandleData(message);
+				} else {
+					console.log("Discarding unhandled topic : " + message.destinationName);
+				}
+			}
+
+			$('.btnSetOffset').on('click', function(event) {
+
+				if (chart.data.getNumberOfRows() <= 1) {
+					return;
+				}
+
+				if (this.id == 'btnSetOffsetC0') {
+					$('#offset').val(lastMeasurement[0]); 
+				} else {
+					$('#offset').val(lastMeasurement[1]); 
+				}
+
+				console.log($('#offset').val());				
+			});
+
+			$('#btnToggleRecording').on('click', function(event) {
+				console.log('recording : ' + chartRecording + ' ' + this.id);
+				
+				chartRecording = !chartRecording;
+
+				if (chartRecording === false) {
+					$(this).removeClass('btn-danger');
+					$(this).addClass('btn-success');
+					$(this).text('Start');
+				} else {
+					$(this).removeClass('btn-success');
+					$(this).addClass('btn-danger');
+					$(this).text('Recording');
+
+					if (chart.data.getNumberOfRows() > 0) {
+						chart.data.removeRows(0, chart.data.getNumberOfRows() - 1);
+					}
+				}
+			});
+
+			$(".chartLimits").change(function() {
+
+				alert('change');
+				chart.options.hAxis.minValue = $("#chartXMin").val();
+				chart.options.hAxis.maxValue = $("#chartXMax").val();
+
+				chart.options.vAxis.minValue = $("#chartYMin").val();
+				chart.options.vAxis.maxValue = $("#chartYMax").val();
+
+				chart.chart_obj.draw(chart.data, chart.options);
+			});
+		});
+	</script>
+</body>
+</html>

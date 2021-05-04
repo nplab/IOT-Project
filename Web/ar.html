@@ -15,7 +15,7 @@
 
 	<script src="js/jquery-3.3.1.min.js"></script>
 	<script src="js/bootstrap.min.js"></script>
-	<script src="js/mqttws31.min.js"></script>
+	<script src="js/mqtt.min.js"></script>
 </head>
 
 <body>
@@ -29,9 +29,12 @@
 
 	<script>
 		"use strict";
-		$(document).ready(function(){
-			let network;
-			let mqttServerAddress = '10.42.10.86';
+		$(document).ready(function() {
+			let mqttServerAddress = 'wss://iot.fh-muenster.de/mqtt';
+
+			function uuidv4() {
+				return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+			}
 
 			// MQTT
 			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
