@@ -1,6 +1,6 @@
 ///////////////////////// COMMON HEADER BEGIN
-#define CONFIG_WIFI_NAME "WIFI_NETWORK"
-#define CONFIG_WIFI_PSK "WIFI_PSK"
+#define CONFIG_WIFI_NAME "CONFIG_WIFI_NAME"
+#define CONFIG_WIFI_PSK "CONFIG_WIFI_PSK"
 #define CONFIG_MQTT_BROKER_ADDRESS "iot.fh-muenster.de"
 
 #define DEBUG_OUTPUT
@@ -137,7 +137,11 @@ static bool common_setup(void) {
 	WiFi.begin(CONFIG_WIFI_NAME, CONFIG_WIFI_PSK);
 
 #ifdef TLS_ENABLED
+#ifdef ESP32
 	espClient.setCACert(test_root_ca);
+#else
+    espClient.setInsecure();
+#endif
 #endif
 
 	// MQTT setup
