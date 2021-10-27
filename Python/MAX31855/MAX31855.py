@@ -35,7 +35,11 @@ if not 'config' in locals():
     config['mqtt_id'] = 'MAX318955-Reader'
 
     ## MQTT - broker ip / hostname
-    config['mqtt_broker'] = '10.42.10.86'
+    config['mqtt_broker'] = 'iot.fh-muenster.de'
+
+    ## MQTT - broker username / password
+    config['mqtt_broker_user'] = 'MQTT_USER'
+    config['mqtt_broker_pass'] = 'MQTT_PASSWORD'
 
     ## MQTT - empty sset of topics
     config['mqtt_topics'] = set([])
@@ -105,6 +109,7 @@ def record_and_display(config):
         bokeh_handle = show(bokeh_figure, notebook_handle = True)
 
     mqtt_client = mqtt.Client(client_id = config['mqtt_id'], userdata=config)
+    mqtt_client.username_pw_set(config['mqtt_broker_user'], config['mqtt_broker_pass'])
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     mqtt_client.connect(config['mqtt_broker'], 1883, 60)

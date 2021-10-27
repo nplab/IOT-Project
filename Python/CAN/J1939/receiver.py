@@ -17,7 +17,7 @@ unknownPgnList = []
 
 dashboardDict = {}
 
-config_mqtt_broker_ip = "10.42.10.86"
+config_mqtt_broker_ip = "iot.fh-muenster.de"
 config_mqtt_client_id = "can-sender"
 config_mqtt_topic     = "sensor/" + config_mqtt_client_id
 

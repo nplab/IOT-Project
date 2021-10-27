@@ -12,7 +12,7 @@
 
 	<script src="../js/jquery-3.3.1.min.js"></script>
 	<script src="../js/bootstrap.min.js"></script>
-	<script src="../js/mqttws31.min.js"></script>
+	<script src="../js/mqtt.min.js"></script>
 	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 </head>
 
@@ -97,25 +97,88 @@
 	<script>
 		"use strict";
 
-		let config = {};
-		config['sensorId'] = "3C:71:BF:AA:7B:18";
-		config['mqttServerAddress'] = '10.42.10.86';
-
-		let network;
-		let mqttClientId;
-		let mqttClient;
-		let chart = {};
-		let chartRecording = false;
-		let lastMeasurement = {};
-
 		$(document).ready(function(){
-			
-			// MQTT
-			mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
-			mqttClient = new Paho.MQTT.Client(config['mqttServerAddress'], 8083, mqttClientId);
+			function uuidv4() {
+				return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+			}
+
+			let network;
+			let mqttServerAddress   = 'wss://iot.fh-muenster.de/mqtt';
+			let mqttClientId        = 'nplab-webclient' + uuidv4();
+			let mqttClient;
+			let mqttClientOptions;
+			let chart = {};
+			let chartRecording = false;
+			let lastMeasurement = {};
+
+			mqttClientOptions = {
+				keepalive: 30,
+				clientId: mqttClientId,
+				protocolId: 'MQTT',
+				protocolVersion: 4,
+				clean: true,
+				reconnectPeriod: 1000,
+				connectTimeout: 30 * 1000,
+				username: 'user000',
+				password: 'zAJ5T2mW',
+				will: {
+					topic: 'WillMsg',
+					payload: 'Connection Closed abnormally..!',
+					qos: 0,
+					retain: false
+				}
+			}
 
 			google.charts.load('current', {packages: ['corechart']});
 			google.charts.setOnLoadCallback(initializeCharts);
+
+			console.log('connecting mqtt client');
+			mqttClient = mqtt.connect(mqttServerAddress, mqttClientOptions);
+
+			mqttClient.on('error', function (err) {
+				console.log('mqtt - error: ' + err);
+				mqttClient.end();
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection lost : ' + err);
+			})
+
+			mqttClient.on('connect', function () {
+				console.log('mqtt - client connected: ' + mqttClientId)
+				mqttClient.subscribe('sensor/3C:71:BF:AA:7B:18', { qos: 0 })
+
+				$('#iotStatus').attr('class', 'card-body d-none');
+				$('#iotNetwork').attr('class', 'card-body');
+				$('#iotList').attr('class', 'card-body');
+			})
+
+			mqttClient.on('message', function (topic, message, packet) {
+				if (topic.startsWith("sensor")) {
+					var data = JSON.parse(message);
+					switch (data.sensor) {
+						case "mcp3204":
+							handleMcp3204(data);
+							break;
+					}
+				} else {
+					console.log("Discarding unhandled topic : " + topic);
+				}
+			})
+
+			mqttClient.on('close', function () {
+				console.log('mqtt - closed')
+
+				$('#iotStatus').attr('class', 'card-body');
+				$('#iotNetwork').attr('class', 'card-body d-none');
+				$('#iotList').attr('class', 'card-body d-none');
+
+				$("#iotStatus > .alert").attr("class", "alert alert-warning");
+				$("#iotStatus > .alert").html('Connection closed');
+			})
 
 			function initializeCharts() {
 
@@ -145,72 +208,9 @@
 
 				chart.chart_obj.draw(chart.data, chart.options);
 
-				// MQTT - set callback handlers and connect
-				mqttClient.onConnectionLost = mqttOnConnectionLost;
-				mqttClient.onMessageArrived = mqttOnMessageArrived;
-				mqttClient.connect({
-					onSuccess : mqttOnConnect,
-					onFailure : mqttOnConnectFailure,
-					timeout : 5
-				});
 			}
 
 			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
-
-			// MQTT Client - connected
-			function mqttOnConnect() {
-				// Once a connection has been made, make a subscription and send a message.
-				console.log("mqttOnConnect");
-
-				$('#iotData').attr('class', 'card-body');
-
-				$('.sensor-id').text(config['sensorId']);
-				mqttClient.subscribe("sensor/" + config['sensorId']);
-			}
-
-			// MQTT Client - connect failed
-			function mqttOnConnectFailure(responseObject) {
-				// Once a connection has been made, make a subscription and send a message.
-				console.log('mqttOnConnectFailure - ' + responseObject.errorCode + ' - ' + responseObject.errorMessage);
-
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection failed : ' + responseObject.errorMessage);
-			}
-
-			// MQTT Client - connection lost
-			function mqttOnConnectionLost(responseObject) {
-				if (responseObject.errorCode !== 0) {
-					console.log("onConnectionLost:" + responseObject.errorMessage);
-				}
-
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection lost : ' + responseObject.errorMessage);
-			}
-
-			// Handle data message
-			function mqttHandleData(message) {
-				$("#iotModalPre").append(message.payloadString).append("\n");
-				var data = JSON.parse(message.payloadString);
-
-				if (!data.hasOwnProperty("sensor")) {
-					console.log("Missing 'sensor' property, ignoring.");
-					return;
-				}
-
-				switch (data.sensor) {
-					case "mcp3204":
-						handleMcp3204(data);
-						break;
-				}
-			}
 
 			function handleMcp3204(data) {
 
@@ -224,24 +224,11 @@
 				chart.data.addRow([Math.round(data.mv_c0 - $('#offset').val()), Math.round(data.mv_c1 - $('#offset').val())]);
 				chart.chart_obj.draw(chart.data, chart.options);
 
-				/*if (chart.data.getNumberOfRows() > 5000) {
+				if (chart.data.getNumberOfRows() > 2000) {
 					chart.data.removeRow(0)
 				}
-				*/
 
 				$('#btnToggleRecording').text('Recording (' + chart.data.getNumberOfRows() + ')');
-			}
-
-			// General MQTT message handler
-			function mqttOnMessageArrived(message) {
-				//console.log(message.payloadString);
-				if (message.destinationName.startsWith("beacon")) {
-					//console.log(message);
-				} else if (message.destinationName.startsWith("sensor")) {
-					mqttHandleData(message);
-				} else {
-					console.log("Discarding unhandled topic : " + message.destinationName);
-				}
 			}
 
 			$('.btnSetOffset').on('click', function(event) {
@@ -281,7 +268,6 @@
 
 			$(".chartLimits").change(function() {
 
-				alert('change');
 				chart.options.hAxis.minValue = $("#chartXMin").val();
 				chart.options.hAxis.maxValue = $("#chartXMax").val();
 

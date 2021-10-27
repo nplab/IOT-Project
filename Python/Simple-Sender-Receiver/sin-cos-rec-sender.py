@@ -4,7 +4,9 @@ import random
 import math
 import time
 
-config_mqtt_broker_ip = "10.42.10.86"
+config_mqtt_broker_ip = "iot.fh-muenster.de"
+config_mqtt_broker_user = "MQTT_USER"
+config_mqtt_broker_pass = "MQTT_PASSWORD"
 config_mqtt_client_id = "dummy-sender-" + str(random.randint(1000, 9999));
 config_mqtt_topic     = "sensor/" + config_mqtt_client_id
 config_mqtt_send_rate = 10 # Hz
@@ -14,6 +16,7 @@ def on_connect(client, userdata, flags, rc):
     print("Connected with result code " + str(rc))
 
 mqtt_c = mqtt.Client(config_mqtt_client_id)
+mqtt_c.username_pw_set(config_mqtt_broker_user, config_mqtt_broker_pass)
 mqtt_c.on_connect = on_connect
 
 mqtt_c.connect(config_mqtt_broker_ip, 1883, 60)

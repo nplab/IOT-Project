@@ -27,7 +27,7 @@ client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("10.42.10.86", 1883, 60)
+client.connect("iot.fh-muenster.de", 1883, 60)
 
 csv_file = open("log.csv", "w")
 csv_writer = csv.writer(csv_file)

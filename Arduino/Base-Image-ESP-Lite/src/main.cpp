@@ -1,7 +1,9 @@
 ///////////////////////// COMMON HEADER BEGIN
 #define CONFIG_WIFI_NAME "WIFI_NAME"
-#define CONFIG_WIFI_PSK "WIFI_PASS"
+#define CONFIG_WIFI_PSK "WIFI_PASSWORD"
 #define CONFIG_MQTT_BROKER_ADDRESS "iot.fh-muenster.de"
+#define CONFIG_MQTT_BROKER_USER "MQTT_USER"
+#define CONFIG_MQTT_BROKER_PASSWORD "MQTT_PASSWORD"
 
 #define DEBUG_OUTPUT
 #define MQTT_OUTPUT
@@ -20,6 +22,13 @@
 #else // ESP32
 #include <ESP8266WiFi.h>
 #endif // ESP32
+
+#ifdef BMP280_SENSOR
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_BMP280.h>
+Adafruit_BMP280 bmp; // I2C
+#endif
 
 #include <WiFiClientSecure.h>
 const char* test_root_ca= \
@@ -54,7 +63,7 @@ const char* test_root_ca= \
 String mqtt_client_id;
 String mqtt_sensor_topic;
 String mqtt_beacon_topic;
-char mqtt_last_will_buffer[BUFFER_SIZE];
+String mqtt_meta_topic;
 
 // WiFi / MQTT
 #define MQTT_PORT 8883
@@ -67,14 +76,24 @@ static bool common_loop(void);
 static void beacon_send(void);
 static bool mqtt_connect(void);
 static bool wifi_connect(void);
-static bool json_send(const char *mqtt_topic, JsonObject json_data);
-static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size);
+static bool json_send(const char *mqtt_topic, JsonObject json_data, bool retained = false);
 ///////////////////////// COMMON HEADER END
 
 #define SENSOR_INTERVAL 5000
 
 void setup(void) {
 	common_setup();
+
+#ifdef BMP280_SENSOR
+/* Default settings from datasheet. */
+	bmp.begin(0x76);
+	bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+					Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+					Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+					Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+					Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
+#endif
+
 	delay(500);
 }
 
@@ -91,12 +110,29 @@ void loop(void) {
 		last_value_sent = millis();
 		
 		StaticJsonDocument<BUFFER_SIZE> json_doc;
-		JsonObject json_data = json_doc.to<JsonObject>();
+		JsonArray json_data = json_doc.to<JsonArray>();
 
-		json_data["msg"]     = "Hallo Welt...";
-		json_data["uptime"]  = millis();
+#ifdef BMP280_SENSOR
+		json_data.add(millis());
+	    json_data.add(bmp.readTemperature());
+#else
+		json_data.add(millis());
+		json_data.add("Hallo Welt...");
+#endif
 
-		json_send(mqtt_sensor_topic.c_str(), json_data);
+		char buffer[BUFFER_SIZE];
+		int bufferlen;
+
+		bufferlen = serializeJson(json_doc, buffer, BUFFER_SIZE);
+
+		Serial.print("MSG OUT [");
+		Serial.print(mqtt_sensor_topic.c_str());
+		Serial.print("] ");
+		Serial.println(buffer);
+
+		if (!mqtt_client.publish(mqtt_sensor_topic.c_str(), buffer, bufferlen)) {
+			Serial.println("publish failed!");
+		}
 	}
 }
 
@@ -125,13 +161,7 @@ static bool common_setup(void) {
 	mqtt_client_id = String(WiFi.macAddress());
 	mqtt_sensor_topic = "sensor/" + mqtt_client_id;
 	mqtt_beacon_topic = "beacon/" + mqtt_client_id;
-
-	// MQTT last will
-	StaticJsonDocument<128> json_doc;
-	JsonObject json_data  = json_doc.to<JsonObject>();
-	json_data["id"]       = mqtt_client_id;
-	json_data["type"]     = 2;
-	serializeJson(json_data, mqtt_last_will_buffer, BUFFER_SIZE);
+	mqtt_meta_topic = "meta/" + mqtt_client_id;
 
 	Serial.println(F("Initialized"));
 	return true;
@@ -172,52 +202,45 @@ bool common_loop(void) {
 static void beacon_send(void) {
 	uint8_t* bssid = WiFi.BSSID();
 	char mac[18];
+	static char mac_last[18];
 	char desc[64];
 	StaticJsonDocument<BUFFER_SIZE> json_doc;
 	JsonObject json_data = json_doc.to<JsonObject>();
 
 	snprintf(desc, sizeof(desc), "%s|%s", WiFi.localIP().toString().c_str(), __DATE__);
 
-	json_data["id"]       = mqtt_client_id;
-	json_data["type"]     = 1;
-	json_data["device"]   = DEVICE_TYPE;
-	json_data["desc"]     = desc;
+	json_data["type"]     = 3;
 	json_data["rssi"]     = WiFi.RSSI();
 	json_data["uptime"]   = millis();
 
 	if (bssid) {
 		sprintf(mac, "%02X:%02X:%02X:%02X:%02X:%02X", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
-		json_data["bssid"]  = String(mac);
+		if (memcmp(mac, mac_last, 18)) {
+			json_data["bssid"]  = String(mac);
+			memcpy(mac_last, mac, 18);
+		}
 	}
 
 	json_send(mqtt_beacon_topic.c_str(), json_data);
 }
 
-static bool json_send(const char *mqtt_topic, JsonObject json_data) {
+static bool json_send(const char *mqtt_topic, JsonObject json_data, bool retained) {
 	char buffer[BUFFER_SIZE];
 	int bufferlen;
 
-	bufferlen = json_serialize(json_data, buffer, BUFFER_SIZE);
+	bufferlen = serializeJson(json_data, buffer, BUFFER_SIZE);
 
 	Serial.print("MSG OUT [");
 	Serial.print(mqtt_topic);
 	Serial.print("] ");
 	Serial.println(buffer);
 
-	if (!mqtt_client.publish(mqtt_topic, (const uint8_t *) buffer, bufferlen)) {
+	if (!mqtt_client.publish(mqtt_topic, (const uint8_t *) buffer, bufferlen, retained)) {
 		Serial.println("publish failed!");
 		return false;
 	}
 
 	return true;
-}
-
-static int json_serialize(JsonObject json_data, char *buffer, size_t buffer_size) {
-	int buffer_filled = 0;
-
-	buffer_filled = serializeJson(json_data, buffer, buffer_size);
-
-	return buffer_filled;
 }
 
 static bool mqtt_connect(void) {
@@ -237,8 +260,34 @@ static bool mqtt_connect(void) {
 	Serial.print(" ...");
 
 	// Try to connect
-	if (mqtt_client.connect(mqtt_client_id.c_str(), mqtt_beacon_topic.c_str(), 0, false, mqtt_last_will_buffer)) {
+	if (mqtt_client.connect(mqtt_client_id.c_str(), CONFIG_MQTT_BROKER_USER, CONFIG_MQTT_BROKER_PASSWORD, mqtt_meta_topic.c_str(), 0, true, "")) {
 		Serial.println(F("connected"));
+
+		char desc[64];
+		StaticJsonDocument<BUFFER_SIZE> json_doc;
+		JsonObject json_data = json_doc.to<JsonObject>();
+
+		snprintf(desc, sizeof(desc), "%s|%s", WiFi.localIP().toString().c_str(), __DATE__);
+
+		json_data["type"]             = 1;
+		json_data["name"]             = DEVICE_TYPE;
+		json_data["desc"]             = desc;
+		json_data["payloadType"]      = "json";
+
+		JsonArray payloadStructure = json_data.createNestedArray("payloadStructure");
+		JsonObject payloadStructure0 = payloadStructure.createNestedObject();
+		payloadStructure0["name"] = "uptime";
+		payloadStructure0["description"] = "uptime in milliseconds";
+
+		JsonObject payloadStructure1 = payloadStructure.createNestedObject();
+#ifdef BMP280_SENSOR
+		payloadStructure1["name"] = "bmp280";
+		payloadStructure1["description"] = "bmp280 temperature sensor";
+#else
+		payloadStructure1["name"] = "dummy";
+		payloadStructure1["description"] = "dummy text";
+#endif
+		json_send(mqtt_meta_topic.c_str(), json_data, true);
 		return true;
 	} else {
 		Serial.print("failed, rc=");
@@ -260,7 +309,7 @@ static bool wifi_connect(void) {
 		delay(1000);
 		Serial.print(".");
 
-		if (++connection_tries >= 5) {
+		if (++connection_tries >= 20) {
 			Serial.println(" - failed");
 			Serial.println("Connection failed after 5 tries, waiting 61 seconds and calling WiFi.reconnect()");
 			delay(61000); // delaying for 61 seconds thanks to &^%$# security policies of our wifi vendor

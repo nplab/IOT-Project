@@ -8,7 +8,7 @@ import time
 
 config_mqtt_broker_ip = "iot.fh-muenster.de"
 config_mqtt_client_id = "dummy-receiver-" + str(random.randint(1000, 9999));
-config_mqtt_topic     = "sensor/80:7D:3A:B7:84:0C"
+config_mqtt_topic     = "sensor/60:01:94:4A:AF:7A"
 
 ts_last_message = int(round(time.time() * 1000))
 

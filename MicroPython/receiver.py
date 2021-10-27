@@ -4,8 +4,10 @@ import random
 import math
 import time
 
-SERVER = "10.42.10.86"
-CLIENT_ID = "egu_ven_mqtt_client";
+MQTT_SERVER = "iot.fh-muenster.de"
+MQTT_USER = 'MQTT_USER'
+MQTT_PASSWORD = 'MQTT_PASSWORD'
+CLIENT_ID = "egu_ven_mqtt_client"
 # all data: "sensor/#"
 TOPIC = "egu_ven"
 
@@ -36,7 +38,8 @@ def time_stamp():
 
 
 mqtt_c = mqtt.Client(CLIENT_ID)
+mqtt_c.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 mqtt_c.on_connect = on_connect
 mqtt_c.on_message = on_message
-mqtt_c.connect(SERVER, 1883, 60)
+mqtt_c.connect(MQTT_SERVER, 1883, 60)
 mqtt_c.loop_forever();

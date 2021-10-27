@@ -13,10 +13,7 @@
 
 	<script src="js/jquery-3.3.1.min.js"></script>
 	<script src="js/bootstrap.min.js"></script>
-	<script src="js/mqttws31.min.js"></script>
-	<script src="js/vis.min.js"></script>
-	<script src="js/moment.js"></script>
-	<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+	<script src="js/mqtt.min.js"></script>
 </head>
 
 <body>
@@ -29,17 +26,6 @@
 						<h3 class="font-weight-normal my-0">SenseView</h3>
 					</div>
 					<div class="card-body">
-							<div class="row">
-								<div class="col-sm-4 center-block">
-									<div id="gauge_temp" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
-								</div>
-								<div class="col-sm-4">
-									<div id="gauge_humi" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
-								</div>
-								<div class="col-sm-4">
-									<div id="gauge_lux" style="width: 200px; height: 200px; display: block; margin: 0 auto;"></div>
-								</div>
-							</div>
 					</div>
 
 					<div class="card-footer text-muted">
@@ -50,16 +36,14 @@
 		</div>
 	</main>
 
-
 	<script>
 		"use strict";
 		$(document).ready(function(){
-			let mqttServerAddress = '10.42.10.86';
+			function uuidv4() {
+				return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+			}
 
-			// MQTT
-			let mqttClientId = 'nplab-webclient' + parseInt(Math.random() * 100);
-			let mqttClient = new Paho.MQTT.Client(mqttServerAddress, 8083, mqttClientId);
-
+			let network;
 			let mqttServerAddress   = 'wss://iot.fh-muenster.de/mqtt';
 			let mqttClientId        = 'nplab-webclient' + uuidv4();
 			let mqttClient;
@@ -73,174 +57,47 @@
 				clean: true,
 				reconnectPeriod: 1000,
 				connectTimeout: 30 * 1000,
+				username: 'user000',
+				password: 'zAJ5T2mW',
 				will: {
 					topic: 'WillMsg',
 					payload: 'Connection Closed abnormally..!',
 					qos: 0,
 					retain: false
-				},
-				rejectUnauthorized: false
+				}
 			}
 
 			console.log('connecting mqtt client');
 			mqttClient = mqtt.connect(mqttServerAddress, mqttClientOptions);
 
 			mqttClient.on('error', function (err) {
-				console.log(err);
+				console.log('mqtt - error: ' + err);
 				mqttClient.end();
-
-				// Once a connection has been made, make a subscription and send a message.
-				console.log('error - ' + err + ' - ' + err);
-
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection failed : ' + err);
 			})
 
 			mqttClient.on('connect', function () {
-				console.log('client connected:' + mqttClientId)
-
-				$('#iotData').attr('class', 'card-body');
-
-				mqttClient.subscribe("sensor/3C:71:BF:AA:8F:C4");
+				console.log('mqtt - client connected: ' + mqttClientId)
 				mqttClient.subscribe("sensor/3C:71:BF:AB:33:58");
 			})
 
 			mqttClient.on('message', function (topic, message, packet) {
 				console.log(message.toString());
-				if (topic.startsWith("beacon")) {
-					mqttHandleBeacon(message.toString());
-				} else if (topic.startsWith("sensor")) {
+				if (topic.startsWith("sensor")) {
 					mqttHandleData(message.toString());
 				} else {
-					console.log("Discarding unhandled topic : " + message.destinationName);
+					console.log("Discarding unhandled topic : " + message.topic);
 				}
 			})
 
 			mqttClient.on('close', function () {
-				$('#iotStatus').attr('class', 'card-body');
-				$('#iotNetwork').attr('class', 'card-body d-none');
-				$('#iotList').attr('class', 'card-body d-none');
-
-				$("#iotStatus > .alert").attr("class", "alert alert-warning");
-				$("#iotStatus > .alert").html('Connection closed');
+				console.log('mqtt - closed')
 			})
-
-			let gauges = {};
-
-			google.charts.load('current', {'packages':['gauge']});
-			google.charts.setOnLoadCallback(initializeCharts);
-
-			function initializeCharts() {
-				gauges.sht31 = {}
-				gauges.sht31.temp = {}
-				gauges.sht31.temp.data = google.visualization.arrayToDataTable([
-					['Label', 'Value'],
-					['Temp', 0]
-				]);
-				gauges.sht31.temp.options = {
-					width: 200, height: 200,
-					redFrom: 90, redTo: 100,
-					yellowFrom:75, yellowTo: 90,
-					minorTicks: 5
-				};
-				gauges.sht31.temp.chart = new google.visualization.Gauge(document.getElementById('gauge_temp'));
-
-				gauges.sht31.humi = {}
-				gauges.sht31.humi.data = google.visualization.arrayToDataTable([
-					['Label', 'Value'],
-					['Humidity', 0]
-				]);
-				gauges.sht31.humi.options = {
-					width: 200, height: 200,
-					redFrom: 90, redTo: 100,
-					yellowFrom:75, yellowTo: 90,
-					minorTicks: 5,
-					animation: {
-						easing: 'inAndOut'
-					}
-				};
-				gauges.sht31.humi.chart = new google.visualization.Gauge(document.getElementById('gauge_humi'));
-
-				gauges.tcs34725 = {}
-				gauges.tcs34725.lux = {}
-				gauges.tcs34725.lux.data = google.visualization.arrayToDataTable([
-					['Label', 'Value'],
-					['Light', 0]
-				]);
-				gauges.tcs34725.lux.options = {
-					width: 200, height: 200,
-					max: 4000,
-					minorTicks: 5,
-					animation: {
-						easing: 'inAndOut'
-					}
-				};
-				gauges.tcs34725.lux.chart = new google.visualization.Gauge(document.getElementById('gauge_lux'));
-
-				// MQTT - set callback handlers and connect
-				mqttClient.onConnectionLost = mqttOnConnectionLost;
-				mqttClient.onMessageArrived = mqttOnMessageArrived;
-				mqttClient.connect({
-					onSuccess : mqttOnConnect,
-					onFailure : mqttOnConnectFailure,
-					timeout : 5
-				});
-			}
-
-			$("#iotStatus > .alert").html('<div class="spinner-border spinner-border-sm" role="status"><span class="sr-only">Loading...</span></div> Connecting to IOT-Broker...');
 
 			// Handle data message
 			function mqttHandleData(message) {
-				$("#iotModalPre").append(message.payloadString).append("\n");
-				var data = JSON.parse(message.payloadString);
 
-				if (!data.hasOwnProperty("sensor")) {
-					console.log("Missing 'sensor' property, ignoring.");
-					return;
-				}
+				var data = JSON.parse(message);
 
-				switch (data.sensor) {
-					case "sht31":
-						handleSht31(data);
-						break;
-
-					case "tcs34725":
-						handleTcs34725(data);
-						break;
-
-					case "mma8451":
-						handleMma8451(data);
-						break;
-				}
-			}
-
-			function handleSht31(data) {
-				//console.log("Handling SHT31");
-				if (data.hasOwnProperty("temp")) {
-					gauges.sht31.temp.data.setValue(0, 1, data.temp.toFixed(1));
-					gauges.sht31.temp.chart.draw(gauges.sht31.temp.data, gauges.sht31.temp.options);
-				}
-
-				if (data.hasOwnProperty("humi")) {
-					gauges.sht31.humi.data.setValue(0, 1, data.humi.toFixed(1));
-					gauges.sht31.humi.chart.draw(gauges.sht31.humi.data, gauges.sht31.humi.options);
-				}
-			}
-
-			function handleTcs34725(data) {
-				//console.log("Handling TCS34725");
-				if (data.hasOwnProperty("lux")) {
-					gauges.tcs34725.lux.data.setValue(0, 1, data.lux);
-					gauges.tcs34725.lux.chart.draw(gauges.tcs34725.lux.data, gauges.tcs34725.lux.options);
-				}
-			}
-
-			function handleMma8451(data) {
-				//console.log("Handling TCS34725");
 				if (data.hasOwnProperty("x") && data.hasOwnProperty("y") && data.hasOwnProperty("z")) {
 					console.log("MMA8451");
 					console.log(data);
@@ -248,18 +105,8 @@
 					let bg_g = (((data.y + 8192) / 16384) *  255);
 					let bg_b = (((data.z + 8192) / 16384) *  255);
 					$('body').css('background-color','rgb('+bg_r+','+bg_g+','+bg_b+')');
-				}
-			}
 
-			// General MQTT message handler
-			function mqttOnMessageArrived(message) {
-				console.log(message.payloadString);
-				if (message.destinationName.startsWith("beacon")) {
-					//console.log(message);
-				} else if (message.destinationName.startsWith("sensor")) {
-					mqttHandleData(message);
-				} else {
-					console.log("Discarding unhandled topic : " + message.destinationName);
+					$('.card-body').text('x: ' + Math.floor(bg_r) + ' - y: ' + Math.floor(bg_g) + ' - z: ' + Math.floor(bg_b)) 
 				}
 			}
 

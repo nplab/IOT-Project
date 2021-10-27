@@ -104,13 +104,14 @@
 				clean: true,
 				reconnectPeriod: 1000,
 				connectTimeout: 30 * 1000,
+				username: 'user000',
+				password: 'zAJ5T2mW',
 				will: {
 					topic: 'WillMsg',
 					payload: 'Connection Closed abnormally..!',
 					qos: 0,
 					retain: false
-				},
-				rejectUnauthorized: false
+				}
 			}
 
 			console.log('connecting mqtt client');
@@ -335,6 +336,11 @@
 					beacon = JSON.parse(message);
 				} catch(e) {
 					console.log("Could not parse beacon, skip.");
+					return;
+				}
+
+				if(!beacon.hasOwnProperty('id')) {
+					console.log("ID field missing, skip.");
 					return;
 				}
 

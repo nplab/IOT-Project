@@ -1,7 +1,9 @@
 ///////////////////////// COMMON HEADER BEGIN
-#define CONFIG_WIFI_NAME "WIFI_NETWORK"
-#define CONFIG_WIFI_PSK "WIFI_PSK"
-#define CONFIG_MQTT_BROKER_ADDRESS "10.42.10.86"
+#define CONFIG_WIFI_NAME "WIFI_NAME"
+#define CONFIG_WIFI_PSK "WIFI_PASSWORD"
+#define CONFIG_MQTT_BROKER_ADDRESS "iot.fh-muenster.de"
+#define CONFIG_MQTT_BROKER_USER "MQTT_USER"
+#define CONFIG_MQTT_BROKER_PASSWORD "MQTT_PASSWORD"
 
 #define DEBUG_OUTPUT
 #define MQTT_OUTPUT
@@ -262,7 +264,7 @@ static bool mqtt_connect(void) {
 	Serial.print(" ...");
 
 	// Try to connect
-	if (mqtt_client.connect(mqtt_client_id.c_str(), mqtt_beacon_topic.c_str(), 0, false, mqtt_last_will_buffer)) {
+	if (mqtt_client.connect(mqtt_client_id.c_str(), CONFIG_MQTT_BROKER_USER, CONFIG_MQTT_BROKER_PASSWORD, mqtt_beacon_topic.c_str(), 0, false, mqtt_last_will_buffer)) {
 		Serial.println(F("connected"));
 		mqtt_client.subscribe("sensor/3C:71:BF:AB:32:D4");
 		return true;

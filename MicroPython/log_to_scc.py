@@ -12,7 +12,9 @@ ESSID = 'essid'
 PASSWD = 'passwd' 
 
 # MQTT Broker Address
-SERVER = '10.42.10.86'
+MQTT_SERVER = 'iot.fh-muenster.de'
+MQTT_USER = 'MQTT_USER'
+MQTT_PASSWORD = 'MQTT_PASSWORD'
 # MQTT Topic
 TOPIC = 'egu_ven'
 
@@ -97,14 +99,12 @@ def connect_to_wlan(wlan, essid, passwd):
     print('Network config:', wlan.ifconfig())
 
 
-def send_data(server=SERVER,
-              topic=b'foo_topic',
+def send_data(topic=b'foo_topic',
               data=b'Hello!'):
 
     """Send data via MQTT.
 
     Keyword arguments:
-    server -- IP of the MQTT Broker.
     topic  -- The MQTT topic.
     data   -- The data.
 
@@ -112,7 +112,7 @@ def send_data(server=SERVER,
     mosquitto_sub -t foo_topic
     """
     try:
-        client = MQTTClient("umqtt_client", server)
+        client = MQTTClient("umqtt_client", MQTT_SERVER, user=MQTT_USER, password=MQTT_PASSWORD)
         client.connect()
         client.publish(topic, data)
         client.disconnect()
